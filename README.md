@@ -2,10 +2,12 @@
 
 **Status: WORK-IN-PROGRESS.** OSAL primitives verified on the OS4
 guest; a NetBSD rump kernel subset compiles and archives into a
-983 KB `librump.a`; a stub in-memory socket layer runs
-end-to-end through a named-port RPC. Rump-side symbol closure
-about 82% complete. **Not yet linked to a runnable executable.**
-See [Progress](#progress) below for the full checklist.
+~1 MB `librump.a`; a stub in-memory socket layer runs end-to-end
+through a named-port RPC. **`test_rump_init` — 820 KB OS4
+executable linking librump.a + libnetstack_osal.a + rump entry —
+BUILDS with full symbol closure.** Not yet run on-guest (stubs
+along the code path will crash the first real call). See
+[Progress](#progress) below for the full checklist.
 
 ## What this is
 
@@ -115,6 +117,8 @@ commit messages.
     - 10 `prop_*` — property library source not present in tree
     - 7 `sleepq_*` — provided by the sleepq.c we excluded (needs modern rewrite)
     - long tail (cpu_*, entpool_*, uvmspace_*, pmap_*, ...)
+- [x] **`test_rump_init` LINKS** — `src/phase1_osal/rump_link_stubs.c` provides ~110 blanket stubs (return 0 / NULL / void); resulting 820 KB executable is the first OS4 binary in this project containing a real NetBSD rump kernel subset
+- [ ] **`test_rump_init` RUNS on-guest** — stubs will crash the first time any is dereferenced; each crash names a specific subsystem to actually port
 - [ ] **Link `librump.a` + `libnetstack_osal.a` into a test executable** — 153 unresolved must reach 0 first
 - [ ] **`rump_init()` at runtime** — must return 0 on the OS4 guest
 - [ ] **Compile `sys/net/*.c` and `sys/netinet/*.c`** — Phase 2 network subsystem
