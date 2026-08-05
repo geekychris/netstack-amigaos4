@@ -64,6 +64,7 @@ ALL_OBJ = $(PHASE1_OBJ) $(PHASE2_OBJ) $(PHASE3_OBJ) $(PHASE4_OBJ) $(PHASE5_OBJ)
 # -------- Tests --------
 
 PHASE1_TESTS = $(BUILD)/tests/test_threads $(BUILD)/tests/test_sleep $(BUILD)/tests/test_cv
+PHASE2_TESTS = $(BUILD)/tests/test_engine_ping
 
 TESTLDFLAGS = -lauto
 
@@ -92,12 +93,25 @@ phase4: $(BUILD)/libnetstack_netdev.a
 phase5: $(PHASE5_OBJ)
 	@echo "phase5: testing/bridge objects built"
 
-tests: $(PHASE1_TESTS)
-	@echo "tests: phase1 test binaries built"
+tests: $(PHASE1_TESTS) $(PHASE2_TESTS)
+	@echo "tests: phase1 + phase2 test binaries built"
 
-$(BUILD)/tests/%: tests/phase1/%.c $(BUILD)/libnetstack_osal.a
+$(BUILD)/tests/test_threads: tests/phase1/test_threads.c $(BUILD)/libnetstack_osal.a
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $< $(BUILD)/libnetstack_osal.a -o $@ $(TESTLDFLAGS)
+
+$(BUILD)/tests/test_sleep: tests/phase1/test_sleep.c $(BUILD)/libnetstack_osal.a
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(BUILD)/libnetstack_osal.a -o $@ $(TESTLDFLAGS)
+
+$(BUILD)/tests/test_cv: tests/phase1/test_cv.c $(BUILD)/libnetstack_osal.a
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(BUILD)/libnetstack_osal.a -o $@ $(TESTLDFLAGS)
+
+$(BUILD)/tests/test_engine_ping: tests/phase2/test_engine_ping.c \
+                                  $(BUILD)/libnetstack_osal.a $(PHASE2_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(PHASE2_OBJ) $(BUILD)/libnetstack_osal.a -o $@ $(TESTLDFLAGS)
 
 # Static libs — the useful shape for the eventual link steps.
 $(BUILD)/libnetstack_osal.a: $(PHASE1_OBJ)
