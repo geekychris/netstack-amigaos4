@@ -118,7 +118,10 @@ commit messages.
     - 7 `sleepq_*` — provided by the sleepq.c we excluded (needs modern rewrite)
     - long tail (cpu_*, entpool_*, uvmspace_*, pmap_*, ...)
 - [x] **`test_rump_init` LINKS** — `src/phase1_osal/rump_link_stubs.c` provides ~110 blanket stubs (return 0 / NULL / void); resulting 820 KB executable is the first OS4 binary in this project containing a real NetBSD rump kernel subset
-- [ ] **`test_rump_init` RUNS on-guest** — stubs will crash the first time any is dereferenced; each crash names a specific subsystem to actually port
+- [~] **`test_rump_init` RUNS on-guest** — verified: launches, prints "calling rump_init()...", control transfers into rump kernel code, GrimReaper fires somewhere inside `rump_init` (expected — hits one of the ~110 stubs that returns NULL where a valid pointer is needed). Next step is GDB attach to name the crash site and replace that stub with a real port of the underlying subsystem.
+- [ ] **`rump_init()` returns 0** — needs Phase 2 subsystem ports one at a time (probably UVM first, since rump_init's VM setup is early)
+- [ ] **Compile `sys/net/*.c` and `sys/netinet/*.c`** — Phase 2 network subsystem
+- [ ] **Wire `NETSTACK_OP_SOCKET` etc. to `rump_pub_sys_*`** — connect Phase 2 engine to rump for real
 - [ ] **Link `librump.a` + `libnetstack_osal.a` into a test executable** — 153 unresolved must reach 0 first
 - [ ] **`rump_init()` at runtime** — must return 0 on the OS4 guest
 - [ ] **Compile `sys/net/*.c` and `sys/netinet/*.c`** — Phase 2 network subsystem
