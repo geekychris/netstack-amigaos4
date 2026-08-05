@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# scripts/rump-compile-all.sh — try to compile every file in
+# rump's kernel SRCS list. Tallies per-file success/failure,
+# categorizes failures by first error.
+#
+# Deliverable: build/rump-report.txt with counts + a per-file
+# status line. Successful objects land in build/rumpkern/.
+#
+# Runs in the docker toolchain container.
+
+set -uo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RUMP_ROOT="${REPO_DIR}/vendor/netbsd-rump"
+BUILD_DIR="${REPO_DIR}/build/rumpkern"
+REPORT="${REPO_DIR}/build/rump-report.txt"
+IMAGE="walkero/amigagccondocker:os4-gcc11-arm64"
+
+mkdir -p "${BUILD_DIR}"
+
+# .PATH search order from Makefile.rumpkern (roughly)
+SEARCH_PATHS=(
+    "sys/rump/librump/rumpkern"
+    "sys/rump/librump/rumpkern/arch/generic"
+    "sys/kern"
+    "sys/uvm"
+    "sys/conf"
+    "sys/dev"
+    "sys/crypto/blake2"
+    "sys/crypto/chacha"
+    "sys/crypto/cprng_fast"
+    "sys/crypto/nist_hash_drbg"
+    "sys/secmodel"
+    "sys/secmodel/extensions"
+    "sys/secmodel/suser"
+    "sys/compat/common"
+)
+
+# Files from SRCS+= in Makefile.rumpkern (auto-generated ones excluded)
+SRCS=(
+    accessors.c atomic_cas_generic.c blake2s.c chacha_impl.c
+    chacha_ref.c chacha_selftest.c clock_subr.c compat_stub.c
+    cons.c cprng_fast.c devsw.c emul.c etfs_wrap.c hyperentropy.c
+    init_sysctl_base.c intr.c kern_auth.c kern_cfglock.c kern_clock.c
+    kern_descrip.c kern_entropy.c kern_event.c kern_hook.c
+    kern_ksyms.c kern_ktrace.c kern_malloc.c kern_module.c
+    kern_module_hook.c kern_mutex_obj.c kern_ntptime.c kern_proc.c
+    kern_prot.c kern_rate.c kern_reboot.c kern_resource.c
+    kern_rwlock_obj.c kern_scdebug.c kern_select_50.c kern_ssp.c
+    kern_stub.c kern_syscall.c kern_sysctl.c kern_tc.c
+    kern_threadpool.c kern_time.c kern_time_50.c kern_timeout.c
+    kern_uidinfo.c klock.c kobj_rename.c locks.c locks_up.c
+    ltsleep.c lwproc.c nist_hash_drbg.c param.c rndpseudo_50.c
+    rump.c rump_autoconf.c rumpcopy.c scheduler.c secmodel.c
+    secmodel_extensions.c secmodel_suser.c signals.c sleepq.c
+    subr_autoconf.c subr_callback.c subr_copy.c subr_cprng.c
+    subr_cpu.c subr_device.c subr_devsw.c subr_evcnt.c subr_extent.c
+    subr_hash.c subr_humanize.c subr_iostat.c subr_kcpuset.c
+    subr_kmem.c subr_kobj.c subr_localcount.c subr_lockdebug.c
+    subr_log.c subr_lwp_specificdata.c subr_once.c subr_pcq.c
+    subr_percpu.c subr_pool.c subr_prf.c subr_pserialize.c
+    subr_psref.c subr_specificdata.c subr_thmap.c subr_time.c
+    subr_vmem.c subr_workqueue.c subr_xcall.c sys_descrip.c
+    sys_generic.c sys_getrandom.c sys_module.c sys_pipe.c
+    sys_select.c threads.c uipc_sem.c uvm_aobj.c uvm_object.c
+    uvm_page_array.c uvm_page_status.c uvm_readahead.c
+    uvm_swapstub.c vm.c
+)
+
+resolve() {
+    local name="$1"
+    for p in "${SEARCH_PATHS[@]}"; do
+        if [ -f "${RUMP_ROOT}/${p}/${name}" ]; then
+            echo "${p}/${name}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Build compile-list on the host, then run one docker with a
+# helper script that lives IN the repo (so single-file mount
+# quirks on macOS don't bite us).
+STDIN="${REPO_DIR}/build/rump-compile-input.txt"
+: > "${STDIN}"
+missing_count=0
+: > "${STDIN}.missing"
+for src in "${SRCS[@]}"; do
+    obj="${src%.c}"
+    if resolved=$(resolve "${src}"); then
+        echo "${resolved} ${obj}" >> "${STDIN}"
+    else
+        echo "MISSING ${obj}" >> "${STDIN}.missing"
+        missing_count=$((missing_count + 1))
+    fi
+done
+
+# Put the helper inside the repo so docker sees it.
+HELPER="${REPO_DIR}/build/rump-compile-helper.sh"
+cat > "${HELPER}" <<'BASH_EOF'
+#!/bin/bash
+set -uo pipefail
+RUMP_ROOT=/work/vendor/netbsd-rump
+BUILD_DIR=/work/build/rumpkern
+COMMON_CFLAGS="-mcrt=newlib -mhard-float -O2 -mcpu=440 \
+    -D__PPC__ -D_RUMPKERNEL -ffreestanding -fno-strict-aliasing \
+    -Wno-format-zero-length -Wno-pointer-sign \
+    -Wno-implicit-int -Wno-implicit-function-declaration \
+    -imacros ${RUMP_ROOT}/sys/rump/include/opt/opt_rumpkernel.h \
+    -I${RUMP_ROOT}/sys \
+    -I${RUMP_ROOT}/sys/rump/include \
+    -I${RUMP_ROOT}/sys/rump/include/opt \
+    -I${RUMP_ROOT}/sys/rump/librump/rumpkern \
+    -I${RUMP_ROOT}/common/include \
+    -I/work/include"
+
+while read -r srcpath objname; do
+    err=$(ppc-amigaos-gcc ${COMMON_CFLAGS} -c "${RUMP_ROOT}/${srcpath}" \
+              -o "${BUILD_DIR}/${objname}.o" 2>&1)
+    if [ -f "${BUILD_DIR}/${objname}.o" ]; then
+        sz=$(stat -c%s "${BUILD_DIR}/${objname}.o" 2>/dev/null || echo 0)
+        echo "OK ${objname} ${sz}"
+    else
+        firstline=$(echo "${err}" | grep -E "fatal error:|error:" | head -1 | \
+                    sed -e "s|${RUMP_ROOT}/||g" -e "s|/work/||g")
+        echo "FAIL ${objname} ${firstline}"
+    fi
+done
+BASH_EOF
+chmod +x "${HELPER}"
+
+total=$(wc -l < "${STDIN}" | tr -d ' ')
+echo "==> compiling ${total} source files (${missing_count} not-found)..."
+
+docker run --rm -i -v "${REPO_DIR}:/work" "${IMAGE}" \
+    bash /work/build/rump-compile-helper.sh < "${STDIN}" | tee "${REPORT}.raw"
+
+# Report
+ok=$(grep -c "^OK " "${REPORT}.raw" 2>/dev/null | head -1)
+fail=$(grep -c "^FAIL " "${REPORT}.raw" 2>/dev/null | head -1)
+{
+    echo "=== rump-compile-all report ==="
+    echo "Total in list:      ${#SRCS[@]}"
+    echo "Not-found in tree:  ${missing_count}"
+    echo "Attempted compile:  ${total}"
+    echo "  OK:               ${ok}"
+    echo "  FAIL:             ${fail}"
+    echo
+    echo "=== failures grouped by first error ==="
+    grep "^FAIL " "${REPORT}.raw" | \
+        sed -E 's/^FAIL [^ ]+ //' | sort | uniq -c | sort -rn | head -30
+    if [ -s "${STDIN}.missing" ]; then
+        echo
+        echo "=== not found in imported tree ==="
+        cat "${STDIN}.missing"
+    fi
+} | tee "${REPORT}"
+
+rm -f "${HELPER}" "${STDIN}" "${STDIN}.missing"

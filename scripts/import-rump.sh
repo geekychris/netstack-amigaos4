@@ -36,6 +36,14 @@ SUBTREES=(
     "sys/arch/powerpc/include"    # <machine/*.h> — sam460ex is powerpc
     "sys/lib/libkern"             # <lib/libkern/*.h> — kernel libc
     "sys/dev"                     # <dev/*.h> — some headers pulled in by kern
+    "sys/secmodel"                # <secmodel/secmodel.h> — kauth.h wants it
+    "sys/crypto/nist_hash_drbg"   # cprng.h chain
+    "sys/crypto/blake2"           # rumpkern SRCS lists these
+    "sys/crypto/chacha"
+    "sys/crypto/cprng_fast"
+    "sys/altq"                    # net/if.h wants altq/if_altq.h
+    "sys/net80211"                # occasionally referenced from net/
+    "sys/ufs"                     # ufs/ufs/quota.h reference
     "sys/uvm"                     # <uvm/*.h> — virtual memory (headers only)
     "common/lib/libc/string"
     "common/lib/libc/gen"

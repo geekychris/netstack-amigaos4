@@ -34,6 +34,30 @@ subtrees:
   - path: sys/dev
     files: 3848
     bytes: 90198016
+  - path: sys/secmodel
+    files: 21
+    bytes: 147456
+  - path: sys/crypto/nist_hash_drbg
+    files: 3
+    bytes: 45056
+  - path: sys/crypto/blake2
+    files: 3
+    bytes: 20480
+  - path: sys/crypto/chacha
+    files: 20
+    bytes: 192512
+  - path: sys/crypto/cprng_fast
+    files: 3
+    bytes: 16384
+  - path: sys/altq
+    files: 37
+    bytes: 585728
+  - path: sys/net80211
+    files: 31
+    bytes: 720896
+  - path: sys/ufs
+    files: 154
+    bytes: 2838528
   - path: sys/uvm
     files: 76
     bytes: 1298432
