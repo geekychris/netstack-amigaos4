@@ -21,40 +21,33 @@
 #include <string.h>
 
 struct osal_thread {
-    struct Task     *task;      /* AmigaOS task */
-    struct MsgPort  *join_port; /* joiner listens; task sends done */
+    struct Task     *task;         /* AmigaOS task */
+    struct Task     *joiner;       /* task that will call osal_thread_join */
+    ULONG            join_sigmask; /* which signal bit to fire on completion */
+    LONG             join_sigbit;  /* -1 if we don't own one; else AllocSignal result */
     osal_thread_fn   fn;
     void            *arg;
-    volatile int     done;      /* set by task before exiting */
-};
-
-/* Sentinel message the task PutMsg's to join_port when done. */
-struct thread_done_msg {
-    struct Message msg;
+    volatile int     done;         /* set by task before signalling */
 };
 
 /* Task entry trampoline. Recovers osal_thread from tc_UserData,
- * calls the user's fn, signals completion. */
+ * calls the user's fn, signals joiner, spins in Wait until reaped.
+ *
+ * Everything here uses IExec-only primitives (safe from a raw
+ * Task context). PutMsg + AllocSysObjectTags(ASOT_PORT) turned
+ * out to be one primitive too many for the join round-trip
+ * (hangs during WaitPort even when the trampoline reaches
+ * PutMsg cleanly per shared-counter evidence). Direct Signal
+ * is simpler and doesn't need any allocated message struct. */
 static void
 osal_thread_trampoline(void)
 {
     struct Task *self = IExec->FindTask(NULL);
     struct osal_thread *t = (struct osal_thread *)self->tc_UserData;
 
-    IExec->DebugPrintF("[osal] tramp enter task=%p t=%p\n", self, t);
     t->fn(t->arg);
-    IExec->DebugPrintF("[osal] tramp fn done, sending sentinel\n");
     t->done = 1;
-
-    /* Send done sentinel. Allocated on stack — safe because we
-     * Wait() forever after; the joiner reads the message before
-     * killing us via RemTask/Signal. */
-    struct thread_done_msg done;
-    memset(&done, 0, sizeof(done));
-    done.msg.mn_Node.ln_Type = NT_MESSAGE;
-    done.msg.mn_Length       = sizeof(done);
-    IExec->PutMsg(t->join_port, &done.msg);
-    IExec->DebugPrintF("[osal] tramp PutMsg done; waiting\n");
+    IExec->Signal(t->joiner, t->join_sigmask);
 
     /* Wait forever — joiner will RemTask() us. */
     for (;;) IExec->Wait(0);
@@ -71,10 +64,10 @@ osal_thread_create(osal_thread_fn fn, void *arg,
     struct osal_thread *t = osal_malloc(sizeof(*t), 16);
     if (!t) return -1;
     t->fn = fn; t->arg = arg; t->done = 0;
-
-    t->join_port = (struct MsgPort *)IExec->AllocSysObjectTags(
-        ASOT_PORT, ASOPORT_AllocSig, TRUE, TAG_END);
-    if (!t->join_port) { osal_free(t); return -1; }
+    t->joiner = IExec->FindTask(NULL);
+    t->join_sigbit = IExec->AllocSignal(-1);
+    if (t->join_sigbit < 0) { osal_free(t); return -1; }
+    t->join_sigmask = 1UL << t->join_sigbit;
 
     IExec->Forbid();
     t->task = (struct Task *)IExec->CreateTaskTags(
@@ -85,7 +78,7 @@ osal_thread_create(osal_thread_fn fn, void *arg,
     IExec->Permit();
 
     if (!t->task) {
-        IExec->FreeSysObject(ASOT_PORT, t->join_port);
+        IExec->FreeSignal(t->join_sigbit);
         osal_free(t);
         return -1;
     }
@@ -98,22 +91,21 @@ osal_thread_join(struct osal_thread *t)
 {
     if (!t) return -1;
 
-    IExec->DebugPrintF("[osal] join enter t=%p task=%p\n", t, t->task);
-
-    /* Wait for the done sentinel. */
-    (void)IExec->WaitPort(t->join_port);
-    IExec->DebugPrintF("[osal] join WaitPort returned\n");
-    struct Message *m = IExec->GetMsg(t->join_port);
-    (void)m;
-    IExec->DebugPrintF("[osal] join GetMsg got %p\n", m);
+    /* Poll t->done with brief sleeps instead of waiting on a
+     * signal. Signal-based join wasn't waking on OS4 sam460ex
+     * in early testing; poll is dumb but reliable, and 10 ms
+     * granularity is fine for a Phase 1 spike (Phase 2+ can
+     * revisit if we care about wakeup latency). */
+    while (!t->done) {
+        osal_sleep_ns(10000000ULL);   /* 10 ms */
+    }
 
     /* Task is now spinning in Wait(0). Kill it. */
     IExec->Forbid();
     IExec->RemTask(t->task);
     IExec->Permit();
-    IExec->DebugPrintF("[osal] join RemTask done\n");
 
-    IExec->FreeSysObject(ASOT_PORT, t->join_port);
+    IExec->FreeSignal(t->join_sigbit);
     osal_free(t);
     return 0;
 }

@@ -63,7 +63,7 @@ ALL_OBJ = $(PHASE1_OBJ) $(PHASE2_OBJ) $(PHASE3_OBJ) $(PHASE4_OBJ) $(PHASE5_OBJ)
 
 # -------- Tests --------
 
-PHASE1_TESTS = $(BUILD)/tests/test_threads
+PHASE1_TESTS = $(BUILD)/tests/test_threads $(BUILD)/tests/test_sleep
 
 TESTLDFLAGS = -lauto
 

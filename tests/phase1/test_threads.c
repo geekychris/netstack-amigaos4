@@ -18,7 +18,7 @@
 #include <proto/exec.h>
 #include <proto/dos.h>
 
-#define N_WORKERS 2   /* small for debug; scale up once join works */
+#define N_WORKERS 8
 #define SLEEP_NS  10000000ULL   /* 10 ms per sleep */
 
 static struct osal_mutex *g_lock;
@@ -67,8 +67,9 @@ main(int argc, char **argv)
     }
 
     uint64_t t1 = osal_clock_monotonic_ns();
-    /* TB is only 32 bits — the ns value we get may wrap. Don't
-     * rely on the delta for pass/fail. */
+    /* Report clock delta as-is. TB frequency on QEMU sam460ex reads
+     * about 10x the assumed 100 MHz, so 500 ms of wall shows as ~5 s
+     * of "ns" — noted as a TODO in osal_timer.c. */
     (void)t0; (void)t1;
 
     osal_mutex_free(g_lock);

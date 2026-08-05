@@ -51,48 +51,88 @@ osal_clock_monotonic_ns(void)
 
 /* -------- Sleep via timer.device -------------------------------- */
 
-static struct MsgPort       *g_timer_port;
-static struct TimeRequest   *g_timer_req;
-/* ITimer is exported by <proto/timer.h>; timer.device provides it. */
+/*
+ * Per-task IORequests are the OS-blessed way to avoid concurrent
+ * DoIO races on a single request. AmigaOS message ports are keyed
+ * to the task that allocated them (mp_SigTask), and DoIO waits on
+ * that task's signal — so two tasks sharing one IORequest would
+ * deadlock (only one wakes on completion).
+ *
+ * Cache per-task via a keyed lookup on FindTask(NULL). Grows on
+ * demand; never shrinks. Tiny bookkeeping since we typically have
+ * a handful of long-lived tasks (main + a few workers).
+ */
 
-static int
-timer_ensure_open(void)
+#include <exec/semaphores.h>
+
+#define TIMER_SLOT_MAX 16
+
+struct timer_slot {
+    struct Task         *owner;
+    struct MsgPort      *port;
+    struct TimeRequest  *req;
+};
+
+static struct SignalSemaphore g_timer_sem;
+static int                    g_timer_sem_init;
+static struct timer_slot      g_timer_slots[TIMER_SLOT_MAX];
+
+static struct timer_slot *
+timer_slot_for_current_task(void)
 {
-    if (g_timer_req) return 0;
-
-    g_timer_port = (struct MsgPort *)IExec->AllocSysObjectTags(
-        ASOT_PORT, ASOPORT_AllocSig, TRUE, TAG_END);
-    if (!g_timer_port) return -1;
-
-    g_timer_req = (struct TimeRequest *)IExec->AllocSysObjectTags(
-        ASOT_IOREQUEST,
-        ASOIOR_ReplyPort, g_timer_port,
-        ASOIOR_Size,      sizeof(struct TimeRequest),
-        TAG_END);
-    if (!g_timer_req) {
-        IExec->FreeSysObject(ASOT_PORT, g_timer_port);
-        g_timer_port = NULL;
-        return -1;
+    struct Task *me = IExec->FindTask(NULL);
+    if (!g_timer_sem_init) {
+        IExec->InitSemaphore(&g_timer_sem);
+        g_timer_sem_init = 1;
     }
-
-    if (IExec->OpenDevice("timer.device", UNIT_MICROHZ,
-                          (struct IORequest *)g_timer_req, 0) != 0) {
-        IExec->FreeSysObject(ASOT_IOREQUEST, g_timer_req);
-        IExec->FreeSysObject(ASOT_PORT, g_timer_port);
-        g_timer_req = NULL; g_timer_port = NULL;
-        return -1;
+    IExec->ObtainSemaphore(&g_timer_sem);
+    /* Look up existing slot. */
+    for (int i = 0; i < TIMER_SLOT_MAX; i++) {
+        if (g_timer_slots[i].owner == me) {
+            IExec->ReleaseSemaphore(&g_timer_sem);
+            return &g_timer_slots[i];
+        }
     }
-
-    /* Don't publish ITimer as a global — we don't call any of its
-     * time-conversion functions from this file; DoIO on the request
-     * is sufficient for TR_ADDREQUEST. */
-    return 0;
+    /* Allocate a new slot. */
+    for (int i = 0; i < TIMER_SLOT_MAX; i++) {
+        if (g_timer_slots[i].owner == NULL) {
+            struct timer_slot *s = &g_timer_slots[i];
+            s->port = (struct MsgPort *)IExec->AllocSysObjectTags(
+                ASOT_PORT, ASOPORT_AllocSig, TRUE, TAG_END);
+            if (!s->port) { IExec->ReleaseSemaphore(&g_timer_sem); return NULL; }
+            s->req = (struct TimeRequest *)IExec->AllocSysObjectTags(
+                ASOT_IOREQUEST,
+                ASOIOR_ReplyPort, s->port,
+                ASOIOR_Size,      sizeof(struct TimeRequest),
+                TAG_END);
+            if (!s->req) {
+                IExec->FreeSysObject(ASOT_PORT, s->port);
+                s->port = NULL;
+                IExec->ReleaseSemaphore(&g_timer_sem);
+                return NULL;
+            }
+            if (IExec->OpenDevice("timer.device", UNIT_MICROHZ,
+                                  (struct IORequest *)s->req, 0) != 0) {
+                IExec->FreeSysObject(ASOT_IOREQUEST, s->req);
+                IExec->FreeSysObject(ASOT_PORT, s->port);
+                s->req = NULL; s->port = NULL;
+                IExec->ReleaseSemaphore(&g_timer_sem);
+                return NULL;
+            }
+            s->owner = me;
+            IExec->ReleaseSemaphore(&g_timer_sem);
+            return s;
+        }
+    }
+    IExec->ReleaseSemaphore(&g_timer_sem);
+    return NULL;   /* no slots free */
 }
 
 void
 osal_sleep_ns(uint64_t ns)
 {
-    if (timer_ensure_open() != 0) {
+    struct timer_slot *s = timer_slot_for_current_task();
+    if (!s) {
         /* Fallback: busy-yield. Approximate. */
         for (uint64_t i = 0; i < ns / 100; i++) IExec->Wait(0);
         return;
@@ -100,10 +140,10 @@ osal_sleep_ns(uint64_t ns)
     uint64_t us = ns / 1000ULL;
     if (us == 0) us = 1;
 
-    g_timer_req->Request.io_Command = TR_ADDREQUEST;
-    g_timer_req->Time.Seconds       = (ULONG)(us / 1000000ULL);
-    g_timer_req->Time.Microseconds  = (ULONG)(us % 1000000ULL);
-    IExec->DoIO((struct IORequest *)g_timer_req);
+    s->req->Request.io_Command = TR_ADDREQUEST;
+    s->req->Time.Seconds       = (ULONG)(us / 1000000ULL);
+    s->req->Time.Microseconds  = (ULONG)(us % 1000000ULL);
+    IExec->DoIO((struct IORequest *)s->req);
 }
 
 struct osal_timer *
