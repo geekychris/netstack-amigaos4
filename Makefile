@@ -66,7 +66,8 @@ ALL_OBJ = $(PHASE1_OBJ) $(PHASE2_OBJ) $(PHASE3_OBJ) $(PHASE4_OBJ) $(PHASE5_OBJ)
 
 PHASE1_TESTS = $(BUILD)/tests/test_threads $(BUILD)/tests/test_sleep $(BUILD)/tests/test_cv
 PHASE2_TESTS = $(BUILD)/tests/test_engine_ping
-PHASE3_TESTS = $(BUILD)/tests/test_client_rpc $(BUILD)/tests/test_echo
+PHASE3_TESTS = $(BUILD)/tests/test_client_rpc $(BUILD)/tests/test_echo \
+               $(BUILD)/tests/test_bsdlib
 
 TESTLDFLAGS = -lauto
 
@@ -86,8 +87,16 @@ phase1: $(BUILD)/libnetstack_osal.a
 phase2: $(PHASE2_OBJ)
 	@echo "phase2: engine objects built"
 
-phase3: $(BUILD)/libnetstack_client.a
+phase3: $(BUILD)/libnetstack_client.a $(BUILD)/netstack.library
 	@echo "phase3: bsdsocket / client-lib objects built"
+
+$(BUILD)/netstack.library: $(BUILD)/phase3_bsdsocket/bsdsocket_library.o \
+                             $(BUILD)/phase3_bsdsocket/socket_ipc.o \
+                             $(PHASE2_OBJ) $(BUILD)/libnetstack_osal.a
+	$(CC) $^ -o $@ -nostartfiles \
+	    -Wl,-z,common-page-size=4096 \
+	    -Wl,-z,max-page-size=4096
+	$(STRIP) --strip-all $@
 
 phase4: $(BUILD)/libnetstack_netdev.a
 	@echo "phase4: NetDev objects built"
@@ -130,6 +139,12 @@ $(BUILD)/tests/test_echo: tests/phase3/test_echo.c \
 	$(CC) $(CFLAGS) $< $(PHASE2_OBJ) \
 	    $(BUILD)/libnetstack_client.a $(BUILD)/libnetstack_osal.a \
 	    -o $@ $(TESTLDFLAGS)
+
+# test_bsdlib links against the OS-installed bsdsocket.library
+# at runtime — no linker deps on it here.
+$(BUILD)/tests/test_bsdlib: tests/phase3/test_bsdlib.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< -o $@ $(TESTLDFLAGS)
 
 # Static libs — the useful shape for the eventual link steps.
 $(BUILD)/libnetstack_osal.a: $(PHASE1_OBJ)
