@@ -1,0 +1,102 @@
+# netstack-amigaos4 — top-level Makefile.
+#
+# Invoked inside the walkero/amigagccondocker:os4-gcc11-arm64
+# container by scripts/build.sh. Do not run on the host directly —
+# CC name (ppc-amigaos-gcc) only exists inside the container.
+#
+# Per-phase targets — each compiles what it can today:
+#   phase1  : OSAL stubs (compiles; most impls are TODO panics)
+#   phase2  : engine main + init stubs (compiles; boots nothing)
+#   phase3  : bsdsocket library skeleton (compiles; every call ENOSYS)
+#   phase4  : NetDev registry + ring + reference driver stubs (compiles)
+#   phase5  : SANA-II bridge + bench stubs (compiles)
+#
+# Nothing here PRODUCES a working artifact yet. `make all` just
+# proves the toolchain builds every .c we've written so far.
+
+CC     = ppc-amigaos-gcc
+STRIP  = ppc-amigaos-strip
+AR     = ppc-amigaos-ar
+
+CFLAGS = -mcrt=newlib -mhard-float -O2 -mcpu=440 -Wall -Wextra \
+         -D__PPC__ -D__USE_OLD_TIMEVAL__ \
+         -I./include -I./include/netstack -I./include/rumpuser
+
+BUILD = build
+
+# -------- Source lists --------
+
+PHASE1_SRC = \
+    src/phase1_osal/osal_memory.c \
+    src/phase1_osal/osal_lock.c   \
+    src/phase1_osal/osal_thread.c \
+    src/phase1_osal/osal_timer.c  \
+    src/phase1_osal/osal_diag.c   \
+    src/phase1_osal/mbuf_pool.c
+
+PHASE2_SRC = \
+    src/phase2_engine/engine_main.c \
+    src/phase2_engine/engine_init.c
+
+PHASE3_SRC = \
+    src/phase3_bsdsocket/bsdsocket_library.c \
+    src/phase3_bsdsocket/socket_ipc.c
+
+PHASE4_SRC = \
+    src/phase4_netdev/netdev_registry.c   \
+    src/phase4_netdev/netdev_ring.c       \
+    src/phase4_netdev/reference_driver.c
+
+PHASE5_SRC = \
+    src/phase5_testing/sana2_bridge.c \
+    src/phase5_testing/bench_stub.c
+
+# -------- Object lists --------
+
+PHASE1_OBJ = $(PHASE1_SRC:src/%.c=$(BUILD)/%.o)
+PHASE2_OBJ = $(PHASE2_SRC:src/%.c=$(BUILD)/%.o)
+PHASE3_OBJ = $(PHASE3_SRC:src/%.c=$(BUILD)/%.o)
+PHASE4_OBJ = $(PHASE4_SRC:src/%.c=$(BUILD)/%.o)
+PHASE5_OBJ = $(PHASE5_SRC:src/%.c=$(BUILD)/%.o)
+
+ALL_OBJ = $(PHASE1_OBJ) $(PHASE2_OBJ) $(PHASE3_OBJ) $(PHASE4_OBJ) $(PHASE5_OBJ)
+
+# -------- Targets --------
+
+.PHONY: all phase1 phase2 phase3 phase4 phase5 clean
+
+all: phase1 phase2 phase3 phase4 phase5
+	@echo ""
+	@echo "=== netstack-amigaos4 skeleton build complete ==="
+	@echo "    all phases compile; nothing shippable yet."
+	@echo "    see docs/roadmap.md for what happens next."
+
+phase1: $(BUILD)/libnetstack_osal.a
+	@echo "phase1: OSAL objects built"
+
+phase2: $(PHASE2_OBJ)
+	@echo "phase2: engine objects built"
+
+phase3: $(PHASE3_OBJ)
+	@echo "phase3: bsdsocket objects built"
+
+phase4: $(BUILD)/libnetstack_netdev.a
+	@echo "phase4: NetDev objects built"
+
+phase5: $(PHASE5_OBJ)
+	@echo "phase5: testing/bridge objects built"
+
+# Static libs — the useful shape for the eventual link steps.
+$(BUILD)/libnetstack_osal.a: $(PHASE1_OBJ)
+	$(AR) rcs $@ $^
+
+$(BUILD)/libnetstack_netdev.a: $(PHASE4_OBJ)
+	$(AR) rcs $@ $^
+
+# Generic .c → .o rule; mkdir the phase subdir on demand.
+$(BUILD)/%.o: src/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -rf $(BUILD)
