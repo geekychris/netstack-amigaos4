@@ -184,5 +184,16 @@ netstack_socket(int domain, int type, int proto, int *out_sock)
 
     if (netstack_ipc_call(&req) != 0) return -1;
     if (out_sock) *out_sock = req.u.socket.sock;
-    return req.err;   /* NETSTACK_ENOSYS until Phase 3+rump wire it up */
+    return req.err;
+}
+
+int
+netstack_close(int sock)
+{
+    struct NetstackReq req = {0};
+    req.op            = NETSTACK_OP_CLOSE;
+    req.u.close.sock  = sock;
+
+    if (netstack_ipc_call(&req) != 0) return -1;
+    return req.err;
 }

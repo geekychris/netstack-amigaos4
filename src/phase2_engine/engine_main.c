@@ -49,12 +49,18 @@ dispatch_shutdown(struct NetstackReq *r)
      * the caller unblocks first, then we tear down. */
 }
 
+/* fdtable.c */
+extern void fdtable_dispatch_socket(struct NetstackReq *);
+extern void fdtable_dispatch_close(struct NetstackReq *);
+
 static void
 dispatch_request(struct NetstackReq *r)
 {
     switch (r->op) {
         case NETSTACK_OP_PING:     dispatch_ping(r);     break;
         case NETSTACK_OP_SHUTDOWN: dispatch_shutdown(r); break;
+        case NETSTACK_OP_SOCKET:   fdtable_dispatch_socket(r); break;
+        case NETSTACK_OP_CLOSE:    fdtable_dispatch_close(r);  break;
         default:                   r->err = NETSTACK_ENOSYS; break;
     }
 }

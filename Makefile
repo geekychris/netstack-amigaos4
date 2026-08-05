@@ -36,7 +36,8 @@ PHASE1_SRC = \
 
 PHASE2_SRC = \
     src/phase2_engine/engine_main.c \
-    src/phase2_engine/engine_init.c
+    src/phase2_engine/engine_init.c \
+    src/phase2_engine/fdtable.c
 
 PHASE3_SRC = \
     src/phase3_bsdsocket/bsdsocket_library.c \

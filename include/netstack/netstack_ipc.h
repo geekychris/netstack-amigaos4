@@ -70,6 +70,11 @@ struct NetstackReq {
             int32 sock;       /* out: fd on success */
         } socket;
 
+        /* NETSTACK_OP_CLOSE */
+        struct {
+            int32 sock;
+        } close;
+
         /* ...others added as Phase 3 fills in... */
 
         /* Padding so future additions don't change size unexpectedly. */

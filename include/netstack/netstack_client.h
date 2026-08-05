@@ -53,6 +53,7 @@ int  netstack_ping(uint32_t seq, uint32_t payload, uint32_t *out_payload);
  * these become functional with no client-side changes.
  */
 int  netstack_socket(int domain, int type, int proto, int *out_sock);
+int  netstack_close(int sock);
 
 #ifdef __cplusplus
 }
