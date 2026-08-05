@@ -47,7 +47,8 @@ PHASE1_SRC = \
     src/phase1_osal/osal_diag.c   \
     src/phase1_osal/mbuf_pool.c   \
     src/phase1_osal/rump_kern_globals.c \
-    src/phase1_osal/rump_atomics.c
+    src/phase1_osal/rump_atomics.c \
+    src/phase1_osal/rump_link_stubs.c
 
 PHASE2_SRC = \
     src/phase2_engine/engine_main.c \
@@ -191,6 +192,14 @@ $(BUILD)/tests/test_echo: tests/phase3/test_echo.c \
 
 # test_bsdlib links against the OS-installed bsdsocket.library
 # at runtime — no linker deps on it here.
+$(BUILD)/tests/test_rump_init: tests/phase2/test_rump_init.c \
+                                $(BUILD)/librump.a \
+                                $(BUILD)/libnetstack_osal.a
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< \
+	    $(BUILD)/librump.a $(BUILD)/libnetstack_osal.a \
+	    -o $@ $(TESTLDFLAGS)
+
 $(BUILD)/tests/test_bsdlib: tests/phase3/test_bsdlib.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $< -o $@ $(TESTLDFLAGS)

@@ -53,7 +53,8 @@ SRCS=(
     kern_module_hook.c kern_mutex_obj.c kern_proc.c
     kern_prot.c kern_rate.c kern_reboot.c kern_resource.c
     kern_rwlock_obj.c kern_scdebug.c kern_select_50.c kern_ssp.c
-    kern_stub.c kern_syscall.c kern_sysctl.c kern_tc.c
+    kern_syscall.c kern_sysctl.c kern_tc.c
+    # kern_stub.c excluded — its ktrace stubs conflict with kern_ktrace.o
     kern_threadpool.c kern_time.c kern_time_50.c kern_timeout.c
     kern_uidinfo.c klock.c kobj_rename.c locks.c
     ltsleep.c lwproc.c nist_hash_drbg.c param.c rndpseudo_50.c

@@ -25,40 +25,13 @@
  * OS4; it's just a scale factor. */
 int hz = 100;
 
-/* -------- rump-side flags --------
- * rump.h in the imported source declares these as `int`.
- * rump_threads controls whether rump spawns real threads
- * (yes for us) and lockdebug enables slow lock checking (no).
- */
-int rump_threads = 1;
-int rump_lockdebug = 0;
+/* NOTE: rump_threads and rump_lockdebug are provided by
+ * librump.a (rump.o and locks.o respectively). Don't
+ * duplicate them here — that causes ld multiple-definition
+ * errors. */
 
-/* -------- panic — kernel abort --------
- * NetBSD's panic() is (const char *fmt, ...) and never
- * returns. Our OSAL panic does the equivalent — halts the
- * task with a DebugPrintF marker.
- */
-void
-panic(const char *fmt, ...)
-{
-    (void)fmt;
-    /* TODO: format the args via a per-task static buffer +
-     * vsnprintf. For now just funnel through osal_panic which
-     * DebugPrintF's a short message + halts. */
-    osal_panic("kernel panic (rump)");
-    __builtin_unreachable();
-}
-
-/* -------- nullop / nullret — kernel stubs --------
- * Used in vtables and as default handlers throughout the
- * kernel when a subsystem doesn't want to implement a hook.
- */
-int
-nullop(void *arg)
-{
-    (void)arg;
-    return 0;
-}
+/* NOTE: panic() and nullop() are provided by librump.a
+ * (subr_prf.o and kern_stub.o). Don't duplicate. */
 
 /* -------- Memory barriers — PPC implementations --------
  * NetBSD's membar_*() family. On PPC 460 (BookE), `sync` is
@@ -78,9 +51,8 @@ void membar_sync(void)     { __asm__ __volatile__ ("sync"   ::: "memory"); }
  * NetBSD-style kernel preemption doesn't apply. Return 0
  * (no preemption pending) unconditionally.
  */
-int  kpreempt(int where) { (void)where; return 0; }
-void kpreempt_disable(void) { }
-void kpreempt_enable(void)  { }
+/* kpreempt, kpreempt_disable, kpreempt_enable are provided by
+ * librump.a (scheduler.o). Don't duplicate. */
 
 /* -------- lockdebug — off for us --------
  * Called from inside mutex/rwlock code when LOCKDEBUG is
