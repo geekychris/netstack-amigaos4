@@ -84,3 +84,54 @@ int rumpuser_open(const char *n, int m, int *fdp)    { (void)n; (void)m; (void)f
 int rumpuser_close(int fd)                           { (void)fd; return -1; }
 int rumpuser_read(int fd, void *buf, size_t n, int64_t off, size_t *r)   { (void)fd; (void)buf; (void)n; (void)off; (void)r; return -1; }
 int rumpuser_write(int fd, const void *buf, size_t n, int64_t off, size_t *r) { (void)fd; (void)buf; (void)n; (void)off; (void)r; return -1; }
+
+/* -------- Miscellaneous rumpuser stubs -------------------------
+ * These are the last few hypercalls the rump kernel expects
+ * but aren't load-bearing for a network-only build. Return
+ * sensible no-op values so init and shutdown don't panic.
+ */
+
+/* rumpuser_daemonize — for daemon-mode rump. We embed the
+ * kernel in our own process, so daemonization is a no-op. */
+int  rumpuser_daemonize_begin(void)                          { return 0; }
+int  rumpuser_daemonize_done(int error)                      { (void)error; return 0; }
+
+/* rumpuser_dl_bootstrap — used by rump modules loaded from
+ * shared objects. We link statically, so no shared-object
+ * scan is needed. */
+int
+rumpuser_dl_bootstrap(void *symcall, void *symload, void *symfini,
+                      void *modinfo)
+{
+    (void)symcall; (void)symload; (void)symfini; (void)modinfo;
+    return 0;
+}
+
+/* rumpuser_getrandom — kernel entropy source. Return zero
+ * bytes on request; a real impl would tap the PPC TB register
+ * or /RANDOM: on OS4. */
+int
+rumpuser_getrandom(void *buf, size_t buflen, int flags, size_t *retp)
+{
+    (void)flags;
+    /* Fill with a simple counter — cryptographically worthless
+     * but keeps rump init happy. */
+    unsigned char *p = (unsigned char *)buf;
+    static unsigned char ctr;
+    for (size_t i = 0; i < buflen; i++) p[i] = ctr++;
+    if (retp) *retp = buflen;
+    return 0;
+}
+
+/* rumpuser_kill — send signal to a rump process. We don't
+ * expose child processes; ignore. */
+int rumpuser_kill(int64_t pid, int sig)              { (void)pid; (void)sig; return 0; }
+
+/* rumpuser_mutex_spin_p — is this mutex a spin mutex?
+ * Our osal_mutex is always sleep-style. Return 0. */
+int
+rumpuser_mutex_spin_p(struct rumpuser_mtx *mtx)
+{
+    (void)mtx;
+    return 0;
+}

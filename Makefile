@@ -46,7 +46,8 @@ PHASE1_SRC = \
     src/phase1_osal/osal_timer.c  \
     src/phase1_osal/osal_diag.c   \
     src/phase1_osal/mbuf_pool.c   \
-    src/phase1_osal/rump_kern_globals.c
+    src/phase1_osal/rump_kern_globals.c \
+    src/phase1_osal/rump_atomics.c
 
 PHASE2_SRC = \
     src/phase2_engine/engine_main.c \
