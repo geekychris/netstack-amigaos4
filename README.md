@@ -105,15 +105,15 @@ commit messages.
 - [x] **Subtrees imported** — `sys/{rump,net,netinet,netinet6,kern,sys,uvm,dev,secmodel,crypto/*,altq,ufs}`, `sys/arch/powerpc/include`, `sys/lib/libkern`, `common/{include,lib/libc/*}`, `include`; 5990 files, 115 MB
 - [x] **Include-path arch symlinks** — `sys/machine` and `sys/powerpc` → `arch/powerpc/include` (rump build makes both; script does it too)
 - [x] **`RUMP_CFLAGS` recipe** — `-imacros opt_rumpkernel.h` is the key find; the rest is `-I` plumbing
-- [x] **`librump.a` builds** — `scripts/rump-compile-all.sh` compiles 100/109 rump-kern SRCS clean → 983 KB archive
-- [x] **Zero unresolved `atomic_*`, `rumpuser_*`, `rump_*`, `VOP_*` after link** — those categories fully bridged
-- [~] **9 remaining compile failures** — 3× missing `machine/disklabel.h`, 1× `sleepq.c` struct mismatch, 1× `locks_up.c` (MP-vs-UP mutual exclusion), 1× `atomic_op_namespace.h`, 1× `vm.c pmap_kernel`, 1× `compat/sys/timex.h`, 1× `rump_autoconf.c` (autogen `ioconf.c`)
+- [x] **`librump.a` builds** — `scripts/rump-compile-all.sh` compiles 102/114 sources clean → ~1 MB archive
+- [x] **Zero unresolved `atomic_*`, `rumpuser_*`, `rump_*`, `VOP_*`, `radix_*` after link** — those categories fully bridged
+- [x] **Curated skip-list** — files that fail for architectural reasons (locks_up.c, sleepq.c, vm.c, autogen stubs, disklabel-dependent, ntp compat) explicitly excluded with in-code comments; no more "9 compile failures"
+- [x] **opt_*.h stub headers** — 14 empty stubs in `include/rump_opt_stubs/` so files that `#include <opt_*.h>` don't need NetBSD's config generator
 - [~] **4 SRCS not found in tree** — `kern_select_50`, `kern_time_50`, `param`, `rndpseudo_50` — compat-50 shims that live under different names in `sys/compat/common`
-- [~] **153 remaining unresolved symbols** — down from 188 at start of link work; breakdown in `docs/rump_compile_report.md`
-    - 25 `uvm_*` — rest of `sys/uvm/*.c` not in rumpkern SRCS
-    - 10 `prop_*` — `sys/kern/subr_prop.c` compiles but isn't archived
-    - 10 `radix_*` — `sys/net/radix.c`, pulled in when we compile Phase 2 net files
-    - 7 `sleepq_*` — provided by the sleepq.c that failed to compile
+- [~] **144 remaining unresolved symbols** — down from 188 at session start; breakdown in `docs/rump_compile_report.md`
+    - 25 `uvm_*` — needs proper VM plan (arch-specific `VM_{MIN,MAX}_KERNEL_ADDRESS`)
+    - 10 `prop_*` — property library source not present in tree
+    - 7 `sleepq_*` — provided by the sleepq.c we excluded (needs modern rewrite)
     - long tail (cpu_*, entpool_*, uvmspace_*, pmap_*, ...)
 - [ ] **Link `librump.a` + `libnetstack_osal.a` into a test executable** — 153 unresolved must reach 0 first
 - [ ] **`rump_init()` at runtime** — must return 0 on the OS4 guest
