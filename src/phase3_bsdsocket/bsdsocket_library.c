@@ -75,10 +75,14 @@ struct BsdsocketBase {
 extern struct Library *_bsd_Init(struct Library *lib, BPTR seglist,
                                   struct Interface *exec);
 
-/* Library manager interface — Init/Open/Close/Expunge — matches
- * the OS4 "__library" MIT_Name convention. */
-extern uint32           _mgr_Obtain(struct LibraryManagerInterface *);
-extern uint32           _mgr_Release(struct LibraryManagerInterface *);
+/* Shared Obtain/Release for BOTH interfaces — matches the
+ * OS4 SDK Languagedriver example (defaultObtain/defaultRelease).
+ * The library manager's Obtain must have the generic
+ * struct Interface* signature, not LibraryManagerInterface*,
+ * because exec dispatches these via the generic interface
+ * calling convention. */
+extern uint32           _default_Obtain(struct Interface *);
+extern uint32           _default_Release(struct Interface *);
 extern struct Library  *_mgr_Open(struct LibraryManagerInterface *, uint32 version);
 extern BPTR             _mgr_Close(struct LibraryManagerInterface *);
 extern BPTR             _mgr_Expunge(struct LibraryManagerInterface *);
@@ -97,16 +101,16 @@ extern LONG bs_CloseSocket(struct Interface *, LONG s);
 
 /* Manager interface: exec-mandated first 4 slots
  * (Obtain, Release, Expunge-of-Interface, Clone), then the
- * library-mgr slots (Open, Close, Expunge-of-Library). */
+ * library-mgr slots (Open, Close, LibExpunge, GetInterface). */
 static const APTR _mgr_vectors[] = {
-    (APTR)_mgr_Obtain,
-    (APTR)_mgr_Release,
+    (APTR)_default_Obtain,
+    (APTR)_default_Release,
     (APTR)NULL,       /* Expunge (Interface) — unused */
     (APTR)NULL,       /* Clone — unused */
     (APTR)_mgr_Open,
     (APTR)_mgr_Close,
     (APTR)_mgr_Expunge,
-    (APTR)NULL,       /* Reserved */
+    (APTR)NULL,       /* GetInterface — NULL uses exec's default */
     (APTR)-1,
 };
 
@@ -117,19 +121,20 @@ static const struct TagItem _mgr_tags[] = {
     { TAG_END, 0 },
 };
 
-/* main interface's own Obtain/Release — must be distinct from
- * the manager's to avoid the layout ambiguity that seems to
- * upset OS4 when the same fn is used across two different
- * interface types. */
-static uint32 APICALL
-_main_Obtain(struct Interface *Self)
+/* Shared default Obtain/Release used by both interfaces —
+ * mirrors the OS4 SDK Languagedriver example (defaultObtain /
+ * defaultRelease). Same fn is legal to use across multiple
+ * interfaces because it operates on Self->Data.RefCount which
+ * is per-interface. */
+uint32 APICALL
+_default_Obtain(struct Interface *Self)
 {
     Self->Data.RefCount++;
     return Self->Data.RefCount;
 }
 
-static uint32 APICALL
-_main_Release(struct Interface *Self)
+uint32 APICALL
+_default_Release(struct Interface *Self)
 {
     Self->Data.RefCount--;
     return Self->Data.RefCount;
@@ -138,8 +143,8 @@ _main_Release(struct Interface *Self)
 /* "main" interface: user API. Exec-mandated first 4 slots, then
  * the socket functions. */
 static const APTR _main_vectors[] = {
-    (APTR)_main_Obtain,
-    (APTR)_main_Release,
+    (APTR)_default_Obtain,
+    (APTR)_default_Release,
     (APTR)NULL,           /* Expunge — unused */
     (APTR)NULL,           /* Clone   — unused */
     (APTR)bs_socket,
@@ -164,21 +169,14 @@ static const struct TagItem _main_tags[] = {
 /* Array of tag lists, NULL-terminated. Library manager MUST be
  * first per OS4 convention.
  *
- * KNOWN LIMITATION: enabling _main_tags here reliably hangs the
- * guest at OpenLibrary time — probably a MakeInterface layout /
- * calling-convention detail I haven't matched yet. Tried adding
- * MIT_DataSize=0, dedicated Obtain/Release for main, no help.
- * Root cause probably requires reading OS4 SDK's MakeInterface
- * source or diffing against a known-working two-interface
- * .library (usergroup.library is a candidate).
- *
- * Current single-interface config lets the library file be
- * successfully OpenLibrary'd (verified in earlier test cycles)
- * — proves the resident tag + MakeLibrary + __library manager
- * path is correct. The bs_* functions are wired up and
- * compiled; they just aren't reachable via GetInterface("main")
- * yet. Callers should use libnetstack_client.a directly until
- * the interface issue is resolved. */
+ * KNOWN LIMITATION (still): even with SDK-example-matched
+ * patterns (unified default_Obtain/Release taking
+ * struct Interface*, explicit lib_Node fields in Init,
+ * MIT_DataSize=0 on main tags), enabling _main_tags here
+ * still hangs the guest at OpenLibrary. Something else exec
+ * validates on the second interface is off. Left commented out;
+ * see git log for the debug trail. Callers should link
+ * libnetstack_client.a directly until this is unblocked. */
 static const APTR bsd_interfaces[] = {
     (APTR)_mgr_tags,
     /* (APTR)_main_tags, */
@@ -231,13 +229,20 @@ _bsd_Init(struct Library *lib, BPTR seglist, struct Interface *exec)
     base->IExec   = IExec_local;
     IExec         = IExec_local;   /* publish global for the OSAL */
 
-    /* Do NOT touch lib_Node/lib_Flags/etc. — MakeLibrary has
-     * already set them up correctly. Overwriting can corrupt
-     * OS4's internal library-list bookkeeping.
-     *
-     * Do NOT start the engine here — Init runs under Forbid()
+    /* Mirror the OS4 SDK Languagedriver example — set the standard
+     * library node fields. MakeLibrary sets some of these but not
+     * all; being explicit is the SDK-recommended pattern. */
+    base->lib.lib_Node.ln_Type = NT_LIBRARY;
+    base->lib.lib_Node.ln_Pri  = 0;
+    base->lib.lib_Node.ln_Name = (STRPTR)BSDLIBNAME;
+    base->lib.lib_Flags        = LIBF_SUMUSED | LIBF_CHANGED;
+    base->lib.lib_Version      = BSDLIBVER;
+    base->lib.lib_Revision     = BSDLIBREV;
+    base->lib.lib_IdString     = (STRPTR)BSDLIBVERSTR;
+
+    /* Do NOT start the engine here — Init runs under Forbid()
      * and a synchronous Wait would deadlock. Engine spins up
-     * lazily on the first user API call (see ensure_engine below). */
+     * lazily on the first user API call (ensure_engine below). */
 
     return (struct Library *)base;
 }
