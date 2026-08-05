@@ -5,4 +5,6 @@ build/
 # never checked in (see vendor/netbsd-rump/README.md for why).
 vendor/netbsd-rump/sys/
 vendor/netbsd-rump/common/
-vendor/netbsd-rump/IMPORT_MANIFEST.txt
+vendor/netbsd-rump/include/
+# ...but DO commit the manifest so re-imports are reproducible.
+!vendor/netbsd-rump/IMPORT_MANIFEST.txt

@@ -13,7 +13,11 @@
 set -euo pipefail
 
 UPSTREAM_URL="${UPSTREAM_URL:-https://github.com/NetBSD/src}"
-UPSTREAM_REF="${UPSTREAM_REF:-netbsd-10-1-RELEASE}"
+# github.com/NetBSD/src mirrors NetBSD's CVS as branches (netbsd-10 =
+# the NetBSD 10 stable branch). No release tags on the mirror. Pin
+# to the branch and rely on the manifest's commit-sha for
+# reproducibility.
+UPSTREAM_REF="${UPSTREAM_REF:-netbsd-10}"
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENDOR_DIR="${REPO_DIR}/vendor/netbsd-rump"
