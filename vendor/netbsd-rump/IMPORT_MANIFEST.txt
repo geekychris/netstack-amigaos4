@@ -25,6 +25,15 @@ subtrees:
   - path: sys/sys
     files: 304
     bytes: 2777088
+  - path: sys/arch/powerpc/include
+    files: 109
+    bytes: 811008
+  - path: sys/lib/libkern
+    files: 125
+    bytes: 925696
+  - path: sys/uvm
+    files: 76
+    bytes: 1298432
   - path: common/lib/libc/string
     files: 36
     bytes: 172032

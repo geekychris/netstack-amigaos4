@@ -33,10 +33,25 @@ SUBTREES=(
     "sys/netinet6"
     "sys/kern"
     "sys/sys"
+    "sys/arch/powerpc/include"    # <machine/*.h> — sam460ex is powerpc
+    "sys/lib/libkern"             # <lib/libkern/*.h> — kernel libc
+    "sys/uvm"                     # <uvm/*.h> — virtual memory (headers only)
     "common/lib/libc/string"
     "common/lib/libc/gen"
     "include"
 )
+
+# After extraction, NetBSD's build creates two symlinks inside
+# sys/ so the arch-specific headers resolve under generic paths:
+#   <machine/*.h>  -> arch/powerpc/include/*.h
+#   <powerpc/*.h>  -> arch/powerpc/include/*.h
+# Create them here so a fresh clone doesn't have to.
+create_arch_symlinks() {
+    ( cd "${VENDOR_DIR}/sys" && \
+      rm -f machine powerpc && \
+      ln -s arch/powerpc/include machine && \
+      ln -s arch/powerpc/include powerpc )
+}
 
 echo "=================================================================="
 echo "  NetBSD rump kernel import"
@@ -87,6 +102,10 @@ for st in "${SUBTREES[@]}"; do
     echo "==> installing ${st}"
     cp -R "${src}" "${dst}"
 done
+
+# ─── Post-extraction symlinks ─────────────────────────────────
+echo "==> creating machine + powerpc symlinks under sys/"
+create_arch_symlinks
 
 # ─── Manifest ─────────────────────────────────────────────────
 COMMIT=$(cd "${WORK_DIR}" && git rev-parse HEAD)
