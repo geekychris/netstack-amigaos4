@@ -45,7 +45,8 @@ PHASE1_SRC = \
     src/phase1_osal/osal_thread.c \
     src/phase1_osal/osal_timer.c  \
     src/phase1_osal/osal_diag.c   \
-    src/phase1_osal/mbuf_pool.c
+    src/phase1_osal/mbuf_pool.c   \
+    src/phase1_osal/rump_kern_globals.c
 
 PHASE2_SRC = \
     src/phase2_engine/engine_main.c \
@@ -88,15 +89,36 @@ TESTLDFLAGS = -lauto
 
 .PHONY: all phase1 phase2 phase3 phase4 phase5 tests clean rump-probe
 
-# Rump kernel compile probe — verifies our RUMP_CFLAGS + imported
-# sources are complete enough to build one file. Deliverable: an
-# object file with all the mutex_* symbols defined. Unresolved
-# symbols are our OSAL binding TODO.
-rump-probe: $(BUILD)/rump_kern_mutex.o
-	@echo "rump-probe: kern_mutex.c compiled to $<"
-	@$(CC) -mcrt=newlib -mhard-float --print-libgcc 2>/dev/null || true
-	@ppc-amigaos-nm $< | head -20
+# Rump kernel compile probe — builds rump's OWN locks.c (the
+# hypercall-wrapper implementation of mutex/cv/rwlock that
+# replaces sys/kern/kern_mutex.c). This is what a real rump
+# build uses; kern_mutex.c is NOT in the rump-kern SRCS list.
+#
+# Deliverable: rump_locks.o with mutex_init/enter/exit,
+# cv_init/wait/signal/broadcast — all defined, unresolved refs
+# only to rumpuser_* (which our Phase 1 OSAL provides) and a
+# handful of kernel globals (hz, panic, rump_threads, etc. —
+# provided by rump_kern_globals.c).
+rump-probe: $(BUILD)/rump_locks.o
+	@echo "=== rump-probe: rump/librump/rumpkern/locks.c built ==="
+	@ls -la $<
+	@echo ""
+	@echo "=== defined symbols ==="
+	@ppc-amigaos-nm $< | grep -E '^[0-9a-f]+ [TDR] ' | head -20
+	@echo ""
+	@echo "=== unresolved (should ONLY be rumpuser_* or kernel globals) ==="
+	@ppc-amigaos-nm $< | grep '^ *U ' | head -20
 
+RUMP_LOCKS_CFLAGS = $(RUMP_CFLAGS) \
+                    -D_RUMPKERNEL \
+                    -I$(RUMP_ROOT)/sys/rump/librump/rumpkern
+
+$(BUILD)/rump_locks.o: $(RUMP_ROOT)/sys/rump/librump/rumpkern/locks.c
+	@mkdir -p $(BUILD)
+	$(CC) $(RUMP_LOCKS_CFLAGS) -c $< -o $@
+
+# The old file-that-shouldn't-be-built target, kept because it
+# proves the RUMP_CFLAGS work on a raw sys/kern file too.
 $(BUILD)/rump_kern_mutex.o: $(RUMP_ROOT)/sys/kern/kern_mutex.c
 	@mkdir -p $(BUILD)
 	$(CC) $(RUMP_CFLAGS) -c $< -o $@
