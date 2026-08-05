@@ -156,25 +156,29 @@ static const APTR _main_vectors[] = {
 static const struct TagItem _main_tags[] = {
     { MIT_Name,        (ULONG)"main" },
     { MIT_VectorTable, (ULONG)_main_vectors },
+    { MIT_DataSize,    0 },   /* no per-interface private data */
     { MIT_Version,     1 },
     { TAG_END, 0 },
 };
 
-/* Array of tag lists, NULL-terminated. Order determines which
- * interface is default (first == default). Library manager
- * MUST be first per OS4 convention.
+/* Array of tag lists, NULL-terminated. Library manager MUST be
+ * first per OS4 convention.
  *
- * KNOWN BUG: enabling _main_tags here crashes something during
- * OS4 boot / library setup — even though OpenLibrary succeeds
- * (test observed: base != NULL) and the subsequent
- * GetInterface("main", 1) reaches into MakeInterface. Root cause
- * not yet identified — probably a vector-table layout / Interface
- * struct-size mismatch or a NULL slot exec doesn't tolerate for
- * the second interface. Currently commented out; library loads
- * with only __library manager interface (proves the resident-tag
- * + MakeLibrary path works). Followup: dig into MakeInterface
- * source in the OS4 SDK docs, compare against a known-working
- * .library skeleton like usergroup.library. */
+ * KNOWN LIMITATION: enabling _main_tags here reliably hangs the
+ * guest at OpenLibrary time — probably a MakeInterface layout /
+ * calling-convention detail I haven't matched yet. Tried adding
+ * MIT_DataSize=0, dedicated Obtain/Release for main, no help.
+ * Root cause probably requires reading OS4 SDK's MakeInterface
+ * source or diffing against a known-working two-interface
+ * .library (usergroup.library is a candidate).
+ *
+ * Current single-interface config lets the library file be
+ * successfully OpenLibrary'd (verified in earlier test cycles)
+ * — proves the resident tag + MakeLibrary + __library manager
+ * path is correct. The bs_* functions are wired up and
+ * compiled; they just aren't reachable via GetInterface("main")
+ * yet. Callers should use libnetstack_client.a directly until
+ * the interface issue is resolved. */
 static const APTR bsd_interfaces[] = {
     (APTR)_mgr_tags,
     /* (APTR)_main_tags, */
