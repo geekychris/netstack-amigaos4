@@ -61,13 +61,54 @@ rumpuser_putchar(int c)
     return 0;
 }
 
+static void buf_write(void *buf, size_t buflen, const char *s);
+
 int
 rumpuser_getparam(const char *name, void *buf, size_t buflen)
 {
-    (void)name; (void)buf; (void)buflen;
-    /* TODO: IDOS->GetVar("NETSTACK/<name>"). Not-found returns
-     * ENOENT (2). */
-    return 2;
+    /* Reply to the config params rump_init requires before it
+     * will let bootstrap continue. Everything else — ENOENT. */
+    if (name == NULL || buf == NULL || buflen < 2) return 22 /* EINVAL */;
+
+    /* Compare inline (no libc str fns available in this context
+     * at link time — some builds work, others don't). */
+    #define STR_EQ(s) __builtin_strcmp(name, s) == 0
+    if (STR_EQ("_RUMPUSER_NCPU")) {
+        /* Single-CPU rump kernel. NCPU=1 is the safe default. */
+        buf_write(buf, buflen, "1");
+        return 0;
+    }
+    if (STR_EQ("_RUMPUSER_HOSTNAME")) {
+        buf_write(buf, buflen, "netstack-os4");
+        return 0;
+    }
+    if (STR_EQ("RUMP_VERBOSE")) {
+        buf_write(buf, buflen, "0");
+        return 0;
+    }
+    if (STR_EQ("RUMP_THREADS")) {
+        buf_write(buf, buflen, "1");
+        return 0;
+    }
+    if (STR_EQ("RUMP_MEMLIMIT")) {
+        /* Bytes of memory rump is allowed to consume. 32 MB
+         * is generous for a network-only stack. */
+        buf_write(buf, buflen, "33554432");
+        return 0;
+    }
+    return 2 /* ENOENT */;
+    #undef STR_EQ
+}
+
+/* Small helper — write a NUL-terminated string into buf,
+ * respecting buflen. */
+static void
+buf_write(void *buf, size_t buflen, const char *s)
+{
+    char *b = (char *)buf;
+    size_t i;
+    for (i = 0; i + 1 < buflen && s[i]; i++) b[i] = s[i];
+    b[i] = 0;
 }
 
 /* Init hypercall — rump calls this once at startup. */

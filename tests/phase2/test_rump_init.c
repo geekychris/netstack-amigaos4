@@ -1,35 +1,60 @@
 /*
  * tests/phase2/test_rump_init.c — try to bring up the rump kernel.
  *
- * Simply calls rump_init() and reports the return code.
- * If this LINKS (even without running yet), that's a huge
- * milestone — proves librump.a + libnetstack_osal.a resolve
- * the actual call path from OS4 entry to the rump kernel core.
- *
- * We expect the link to expose which unresolved symbols are
- * ACTUALLY on the code path from main→rump_init→everything
- * it transitively needs. That subset is far smaller than the
- * ~144 total unresolved in the archives.
+ * Rump kernel init uses way more stack than the OS4 shell's
+ * default 64 KB. Allocate a big private stack + StackSwap into
+ * it before calling rump_init(). Swap back before returning.
  */
 
+#include <exec/tasks.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 
-/* rump kernel entry — declared in vendor/netbsd-rump/sys/rump/
- * include/rump/rump.h but pulling that in here would drag in a
- * lot of NetBSD-flavored headers. Just prototype it directly. */
+#define BIG_STACK  (1024 * 1024)     /* 1 MB */
+
 extern int rump_init(void);
+
+/* Called under our big stack. */
+static int g_rump_result;
+static void
+rump_bootstrap(void)
+{
+    g_rump_result = rump_init();
+}
 
 int
 main(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    IDOS->Printf("test_rump_init: calling rump_init()...\n");
+    IDOS->Printf("test_rump_init: allocating %ld KB stack\n",
+                 (long)(BIG_STACK / 1024));
     IDOS->FFlush(IDOS->Output());
 
-    int rv = rump_init();
+    void *stack_lower = IExec->AllocVecTags(BIG_STACK,
+        AVT_Type,           MEMF_PRIVATE,
+        AVT_ClearWithValue, 0,
+        TAG_END);
+    if (!stack_lower) {
+        IDOS->Printf("stack alloc FAILED\n");
+        return 20;
+    }
 
-    IDOS->Printf("test_rump_init: rump_init returned %ld\n", (long)rv);
+    struct StackSwapStruct sss;
+    sss.stk_Lower   = stack_lower;
+    sss.stk_Upper   = (unsigned long)stack_lower + BIG_STACK;
+    sss.stk_Pointer = (APTR)sss.stk_Upper;
+
+    IDOS->Printf("test_rump_init: StackSwap → calling rump_init()...\n");
     IDOS->FFlush(IDOS->Output());
-    return rv ? 20 : 0;
+
+    /* OS4 StackSwap: swap in, run, swap back. */
+    IExec->StackSwap(&sss);
+    rump_bootstrap();
+    IExec->StackSwap(&sss);
+
+    IExec->FreeVec(stack_lower);
+
+    IDOS->Printf("test_rump_init: rump_init returned %ld\n", (long)g_rump_result);
+    IDOS->FFlush(IDOS->Output());
+    return g_rump_result ? 20 : 0;
 }
