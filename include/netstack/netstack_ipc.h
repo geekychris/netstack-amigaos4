@@ -46,6 +46,15 @@ extern "C" {
 #define NETSTACK_OK            0
 #define NETSTACK_ENOSYS       (-38)
 #define NETSTACK_EBADF        (-9)
+#define NETSTACK_EAGAIN       (-11)
+#define NETSTACK_EINVAL       (-22)
+#define NETSTACK_EADDRINUSE   (-48)
+#define NETSTACK_ECONNREFUSED (-61)
+#define NETSTACK_ENOTCONN     (-57)
+#define NETSTACK_EMSGSIZE     (-40)
+
+/* Max in-band payload for send/recv. Larger transfers must chunk. */
+#define NETSTACK_MAX_PAYLOAD  1024
 
 struct NetstackReq {
     struct Message  msg;      /* mn_ReplyPort set by caller */
@@ -75,10 +84,52 @@ struct NetstackReq {
             int32 sock;
         } close;
 
-        /* ...others added as Phase 3 fills in... */
+        /* NETSTACK_OP_BIND — stub layer only cares about port. */
+        struct {
+            int32  sock;
+            uint16 port;
+            uint16 _pad;
+        } bind;
+
+        /* NETSTACK_OP_LISTEN */
+        struct {
+            int32 sock;
+            int32 backlog;   /* ignored in stub (fixed) */
+        } listen;
+
+        /* NETSTACK_OP_CONNECT */
+        struct {
+            int32  sock;
+            uint16 port;
+            uint16 _pad;
+        } connect;
+
+        /* NETSTACK_OP_ACCEPT */
+        struct {
+            int32  sock;
+            int32  new_sock;   /* out */
+            uint16 peer_port;  /* out (stub: always the listen port) */
+            uint16 _pad;
+        } accept;
+
+        /* NETSTACK_OP_SEND — payload inline for stub simplicity. */
+        struct {
+            int32  sock;
+            int32  len_in;     /* bytes in u.send.data */
+            int32  len_out;    /* bytes actually accepted */
+            uint8  data[NETSTACK_MAX_PAYLOAD];
+        } send;
+
+        /* NETSTACK_OP_RECV — same shape, engine fills data + len_out. */
+        struct {
+            int32  sock;
+            int32  len_in;     /* max bytes to read */
+            int32  len_out;    /* actually read */
+            uint8  data[NETSTACK_MAX_PAYLOAD];
+        } recv;
 
         /* Padding so future additions don't change size unexpectedly. */
-        uint8 raw[64];
+        uint8 raw[NETSTACK_MAX_PAYLOAD + 64];
     } u;
 };
 

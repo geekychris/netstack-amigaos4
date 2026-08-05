@@ -55,6 +55,24 @@ int  netstack_ping(uint32_t seq, uint32_t payload, uint32_t *out_payload);
 int  netstack_socket(int domain, int type, int proto, int *out_sock);
 int  netstack_close(int sock);
 
+/*
+ * bind/listen/connect/accept: as POSIX except that addresses
+ * are just port numbers in this scaffold (no AF_INET sockaddr
+ * marshalling until Phase 3 completes).
+ */
+int  netstack_bind(int sock, uint16_t port);
+int  netstack_listen(int sock, int backlog);
+int  netstack_connect(int sock, uint16_t port);
+int  netstack_accept(int sock, int *out_new_sock, uint16_t *out_peer_port);
+
+/*
+ * send/recv: non-blocking. Return value is the number of bytes
+ * moved on success, or a negative NETSTACK_E* on error.
+ * NETSTACK_EAGAIN means "would block, retry later".
+ */
+int  netstack_send(int sock, const void *buf, int len);
+int  netstack_recv(int sock, void *buf, int max);
+
 #ifdef __cplusplus
 }
 #endif

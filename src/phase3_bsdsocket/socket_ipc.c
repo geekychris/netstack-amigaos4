@@ -197,3 +197,83 @@ netstack_close(int sock)
     if (netstack_ipc_call(&req) != 0) return -1;
     return req.err;
 }
+
+int
+netstack_bind(int sock, uint16_t port)
+{
+    struct NetstackReq req = {0};
+    req.op            = NETSTACK_OP_BIND;
+    req.u.bind.sock   = sock;
+    req.u.bind.port   = port;
+    if (netstack_ipc_call(&req) != 0) return -1;
+    return req.err;
+}
+
+int
+netstack_listen(int sock, int backlog)
+{
+    struct NetstackReq req = {0};
+    req.op              = NETSTACK_OP_LISTEN;
+    req.u.listen.sock   = sock;
+    req.u.listen.backlog = backlog;
+    if (netstack_ipc_call(&req) != 0) return -1;
+    return req.err;
+}
+
+int
+netstack_connect(int sock, uint16_t port)
+{
+    struct NetstackReq req = {0};
+    req.op               = NETSTACK_OP_CONNECT;
+    req.u.connect.sock   = sock;
+    req.u.connect.port   = port;
+    if (netstack_ipc_call(&req) != 0) return -1;
+    return req.err;
+}
+
+int
+netstack_accept(int sock, int *out_new_sock, uint16_t *out_peer_port)
+{
+    struct NetstackReq req = {0};
+    req.op              = NETSTACK_OP_ACCEPT;
+    req.u.accept.sock   = sock;
+    if (netstack_ipc_call(&req) != 0) return -1;
+    if (out_new_sock)   *out_new_sock   = req.u.accept.new_sock;
+    if (out_peer_port)  *out_peer_port  = req.u.accept.peer_port;
+    return req.err;
+}
+
+int
+netstack_send(int sock, const void *buf, int len)
+{
+    if (len < 0 || len > NETSTACK_MAX_PAYLOAD) return NETSTACK_EMSGSIZE;
+    struct NetstackReq req = {0};
+    req.op            = NETSTACK_OP_SEND;
+    req.u.send.sock   = sock;
+    req.u.send.len_in = len;
+    if (len > 0) {
+        const unsigned char *p = (const unsigned char *)buf;
+        for (int i = 0; i < len; i++) req.u.send.data[i] = p[i];
+    }
+    if (netstack_ipc_call(&req) != 0) return -1;
+    if (req.err != NETSTACK_OK) return req.err;
+    return req.u.send.len_out;
+}
+
+int
+netstack_recv(int sock, void *buf, int max)
+{
+    if (max < 0) return NETSTACK_EMSGSIZE;
+    if (max > NETSTACK_MAX_PAYLOAD) max = NETSTACK_MAX_PAYLOAD;
+    struct NetstackReq req = {0};
+    req.op            = NETSTACK_OP_RECV;
+    req.u.recv.sock   = sock;
+    req.u.recv.len_in = max;
+    if (netstack_ipc_call(&req) != 0) return -1;
+    if (req.err != NETSTACK_OK) return req.err;
+    if (req.u.recv.len_out > 0 && buf) {
+        unsigned char *p = (unsigned char *)buf;
+        for (int i = 0; i < req.u.recv.len_out; i++) p[i] = req.u.recv.data[i];
+    }
+    return req.u.recv.len_out;
+}

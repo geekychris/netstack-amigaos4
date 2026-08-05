@@ -66,7 +66,7 @@ ALL_OBJ = $(PHASE1_OBJ) $(PHASE2_OBJ) $(PHASE3_OBJ) $(PHASE4_OBJ) $(PHASE5_OBJ)
 
 PHASE1_TESTS = $(BUILD)/tests/test_threads $(BUILD)/tests/test_sleep $(BUILD)/tests/test_cv
 PHASE2_TESTS = $(BUILD)/tests/test_engine_ping
-PHASE3_TESTS = $(BUILD)/tests/test_client_rpc
+PHASE3_TESTS = $(BUILD)/tests/test_client_rpc $(BUILD)/tests/test_echo
 
 TESTLDFLAGS = -lauto
 
@@ -118,6 +118,14 @@ $(BUILD)/tests/test_engine_ping: tests/phase2/test_engine_ping.c \
 $(BUILD)/tests/test_client_rpc: tests/phase3/test_client_rpc.c \
                                  $(BUILD)/libnetstack_client.a \
                                  $(BUILD)/libnetstack_osal.a $(PHASE2_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(PHASE2_OBJ) \
+	    $(BUILD)/libnetstack_client.a $(BUILD)/libnetstack_osal.a \
+	    -o $@ $(TESTLDFLAGS)
+
+$(BUILD)/tests/test_echo: tests/phase3/test_echo.c \
+                           $(BUILD)/libnetstack_client.a \
+                           $(BUILD)/libnetstack_osal.a $(PHASE2_OBJ)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $< $(PHASE2_OBJ) \
 	    $(BUILD)/libnetstack_client.a $(BUILD)/libnetstack_osal.a \

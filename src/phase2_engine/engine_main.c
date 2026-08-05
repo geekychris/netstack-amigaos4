@@ -52,16 +52,28 @@ dispatch_shutdown(struct NetstackReq *r)
 /* fdtable.c */
 extern void fdtable_dispatch_socket(struct NetstackReq *);
 extern void fdtable_dispatch_close(struct NetstackReq *);
+extern void fdtable_dispatch_bind(struct NetstackReq *);
+extern void fdtable_dispatch_listen(struct NetstackReq *);
+extern void fdtable_dispatch_connect(struct NetstackReq *);
+extern void fdtable_dispatch_accept(struct NetstackReq *);
+extern void fdtable_dispatch_send(struct NetstackReq *);
+extern void fdtable_dispatch_recv(struct NetstackReq *);
 
 static void
 dispatch_request(struct NetstackReq *r)
 {
     switch (r->op) {
-        case NETSTACK_OP_PING:     dispatch_ping(r);     break;
-        case NETSTACK_OP_SHUTDOWN: dispatch_shutdown(r); break;
-        case NETSTACK_OP_SOCKET:   fdtable_dispatch_socket(r); break;
-        case NETSTACK_OP_CLOSE:    fdtable_dispatch_close(r);  break;
-        default:                   r->err = NETSTACK_ENOSYS; break;
+        case NETSTACK_OP_PING:     dispatch_ping(r);          break;
+        case NETSTACK_OP_SHUTDOWN: dispatch_shutdown(r);      break;
+        case NETSTACK_OP_SOCKET:   fdtable_dispatch_socket(r);  break;
+        case NETSTACK_OP_CLOSE:    fdtable_dispatch_close(r);   break;
+        case NETSTACK_OP_BIND:     fdtable_dispatch_bind(r);    break;
+        case NETSTACK_OP_LISTEN:   fdtable_dispatch_listen(r);  break;
+        case NETSTACK_OP_CONNECT:  fdtable_dispatch_connect(r); break;
+        case NETSTACK_OP_ACCEPT:   fdtable_dispatch_accept(r);  break;
+        case NETSTACK_OP_SEND:     fdtable_dispatch_send(r);    break;
+        case NETSTACK_OP_RECV:     fdtable_dispatch_recv(r);    break;
+        default:                   r->err = NETSTACK_ENOSYS;    break;
     }
 }
 
