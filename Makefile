@@ -61,11 +61,17 @@ PHASE5_OBJ = $(PHASE5_SRC:src/%.c=$(BUILD)/%.o)
 
 ALL_OBJ = $(PHASE1_OBJ) $(PHASE2_OBJ) $(PHASE3_OBJ) $(PHASE4_OBJ) $(PHASE5_OBJ)
 
+# -------- Tests --------
+
+PHASE1_TESTS = $(BUILD)/tests/test_threads
+
+TESTLDFLAGS = -lauto
+
 # -------- Targets --------
 
-.PHONY: all phase1 phase2 phase3 phase4 phase5 clean
+.PHONY: all phase1 phase2 phase3 phase4 phase5 tests clean
 
-all: phase1 phase2 phase3 phase4 phase5
+all: phase1 phase2 phase3 phase4 phase5 tests
 	@echo ""
 	@echo "=== netstack-amigaos4 skeleton build complete ==="
 	@echo "    all phases compile; nothing shippable yet."
@@ -85,6 +91,13 @@ phase4: $(BUILD)/libnetstack_netdev.a
 
 phase5: $(PHASE5_OBJ)
 	@echo "phase5: testing/bridge objects built"
+
+tests: $(PHASE1_TESTS)
+	@echo "tests: phase1 test binaries built"
+
+$(BUILD)/tests/%: tests/phase1/%.c $(BUILD)/libnetstack_osal.a
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(BUILD)/libnetstack_osal.a -o $@ $(TESTLDFLAGS)
 
 # Static libs — the useful shape for the eventual link steps.
 $(BUILD)/libnetstack_osal.a: $(PHASE1_OBJ)
