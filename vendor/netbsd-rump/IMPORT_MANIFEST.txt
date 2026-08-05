@@ -31,6 +31,9 @@ subtrees:
   - path: sys/lib/libkern
     files: 125
     bytes: 925696
+  - path: sys/dev
+    files: 3848
+    bytes: 90198016
   - path: sys/uvm
     files: 76
     bytes: 1298432
@@ -40,6 +43,9 @@ subtrees:
   - path: common/lib/libc/gen
     files: 7
     bytes: 159744
+  - path: common/include
+    files: 20
+    bytes: 118784
   - path: include
     files: 143
     bytes: 901120

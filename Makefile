@@ -22,6 +22,19 @@ CFLAGS = -mcrt=newlib -mhard-float -O2 -mcpu=440 -Wall -Wextra \
          -D__PPC__ -D__USE_OLD_TIMEVAL__ \
          -I./include -I./include/netstack -I./include/rumpuser
 
+# CFLAGS for compiling imported NetBSD rump kernel source.
+# See docs/rump_build_probe.md for the derivation of these.
+RUMP_ROOT   = vendor/netbsd-rump
+RUMP_OPT    = $(RUMP_ROOT)/sys/rump/include/opt/opt_rumpkernel.h
+RUMP_CFLAGS = -mcrt=newlib -mhard-float -O2 -mcpu=440 \
+              -D__PPC__ -ffreestanding -fno-strict-aliasing \
+              -Wno-format-zero-length -Wno-pointer-sign \
+              -imacros $(RUMP_OPT) \
+              -I$(RUMP_ROOT)/sys \
+              -I$(RUMP_ROOT)/sys/rump/include \
+              -I$(RUMP_ROOT)/common/include \
+              -I./include -I./include/netstack -I./include/rumpuser
+
 BUILD = build
 
 # -------- Source lists --------
@@ -73,7 +86,20 @@ TESTLDFLAGS = -lauto
 
 # -------- Targets --------
 
-.PHONY: all phase1 phase2 phase3 phase4 phase5 tests clean
+.PHONY: all phase1 phase2 phase3 phase4 phase5 tests clean rump-probe
+
+# Rump kernel compile probe — verifies our RUMP_CFLAGS + imported
+# sources are complete enough to build one file. Deliverable: an
+# object file with all the mutex_* symbols defined. Unresolved
+# symbols are our OSAL binding TODO.
+rump-probe: $(BUILD)/rump_kern_mutex.o
+	@echo "rump-probe: kern_mutex.c compiled to $<"
+	@$(CC) -mcrt=newlib -mhard-float --print-libgcc 2>/dev/null || true
+	@ppc-amigaos-nm $< | head -20
+
+$(BUILD)/rump_kern_mutex.o: $(RUMP_ROOT)/sys/kern/kern_mutex.c
+	@mkdir -p $(BUILD)
+	$(CC) $(RUMP_CFLAGS) -c $< -o $@
 
 all: phase1 phase2 phase3 phase4 phase5 tests
 	@echo ""

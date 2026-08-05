@@ -35,9 +35,11 @@ SUBTREES=(
     "sys/sys"
     "sys/arch/powerpc/include"    # <machine/*.h> — sam460ex is powerpc
     "sys/lib/libkern"             # <lib/libkern/*.h> — kernel libc
+    "sys/dev"                     # <dev/*.h> — some headers pulled in by kern
     "sys/uvm"                     # <uvm/*.h> — virtual memory (headers only)
     "common/lib/libc/string"
     "common/lib/libc/gen"
+    "common/include"              # <prop/*.h> and other shared headers
     "include"
 )
 
