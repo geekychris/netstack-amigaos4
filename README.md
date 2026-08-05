@@ -1,8 +1,11 @@
 # netstack-amigaos4 — modern BSD network stack for AmigaOS 4
 
-**Status: SKELETON.** Directory layout, headers, stubs, and per-phase
-docs are in place. **No working code yet.** This repo is the
-scaffold that Phase 1 begins to fill in.
+**Status: WORK-IN-PROGRESS.** OSAL primitives verified on the OS4
+guest; a NetBSD rump kernel subset compiles and archives into a
+983 KB `librump.a`; a stub in-memory socket layer runs
+end-to-end through a named-port RPC. Rump-side symbol closure
+about 82% complete. **Not yet linked to a runnable executable.**
+See [Progress](#progress) below for the full checklist.
 
 ## What this is
 
@@ -18,13 +21,6 @@ Roadshow / AmiTCP-derived stacks. Delivers:
   SANA-III) alongside a legacy SANA-II bridge so existing drivers
   keep working during the transition.
 
-## What this is NOT (yet)
-
-- Not compiled BSD code — `vendor/netbsd-rump/` is empty; import is
-  scripted but not run.
-- Not a shippable driver — Phase 4 is a header spec and stubs.
-- Not benchmarked — Phase 5 is scaffolding only.
-
 See [`docs/OVERVIEW.md`](docs/OVERVIEW.md) for the architecture
 picture and [`docs/roadmap.md`](docs/roadmap.md) for realistic time
 estimates (spoiler: multiple quarters of full-time work).
@@ -32,11 +28,9 @@ estimates (spoiler: multiple quarters of full-time work).
 ## Reality check
 
 Porting a modern BSD network stack is a multi-quarter effort even
-with NetBSD rump kernels doing most of the isolation work. This
-repo is here so that when the effort starts, the scaffolding
-already exists and each phase has clear boundaries. Do not confuse
-"skeleton complete" with "stack working" — those are separated by
-somewhere between 6 and 18 months of steady kernel work.
+with NetBSD rump kernels doing most of the isolation work. Do not
+confuse the concrete progress below with "stack working" — those
+are separated by 3-6 months of steady kernel-porting work.
 
 ## Choice of upstream
 
@@ -45,52 +39,152 @@ framework is purpose-built for hosting kernel subsystems outside
 their native kernel: `sys/net`, `sys/netinet`, `sys/netinet6` are
 already isolated behind a ~50-function `rumpuser_*` hypercall
 API. The OSAL surface area is a fraction of what a raw FreeBSD
-extraction would require. See
-[`docs/phase1_osal.md`](docs/phase1_osal.md) for the specifics.
+extraction would require.
 
-Trade-off accepted: NetBSD's TCP is fine but doesn't have BBR/RACK
-today. If those become dealbreakers for a specific use case they
-can be back-ported later — porting the RACK code is far less work
-than porting the whole FreeBSD stack.
+## Progress
+
+Legend: `[x]` complete + verified · `[~]` partial · `[ ]` not started.
+Verified = compiled and run on the OS4 guest, output captured in
+commit messages.
+
+### Repo scaffold
+- [x] **5-phase directory layout** — `src/phase{1..5}/`, `include/{netstack,rumpuser}/`, `docs/`, `tests/`
+- [x] **Docker cross-compile wrapper** — `scripts/build.sh` uses `walkero/amigagccondocker:os4-gcc11-arm64`
+- [x] **Per-phase docs** — `OVERVIEW.md`, `roadmap.md`, `phase1..5_*.md`, `rump_build_probe.md`, `rump_compile_report.md`
+
+### Phase 1 — OSAL (OS Adaptation Layer)
+- [x] **Memory** — `osal_malloc/free`, DMA variants (via `AllocVecTags(MEMF_SHARED)`)
+- [x] **Mutex** — `osal_mutex_*` on `SignalSemaphore`; verified 8-way contention
+- [x] **Reader-writer lock** — `osal_rwlock_*` on shared-mode semaphore
+- [x] **Condition variables** — `osal_cv_*` with per-cv waiter list + `SIGF_SINGLE`; producer/consumer test green
+- [x] **Threads** — `osal_thread_create/join/self` on `CreateTaskTags` + trampoline; join via poll-on-done (Signal path was flaky, poll is reliable)
+- [x] **Sleep** — `osal_sleep_ns` via `timer.device` (per-task IORequest table, races were the initial bug)
+- [x] **Clock** — `osal_clock_monotonic_ns` via PPC `mftb`; proportional but off ~10× (TB frequency wrong)
+- [x] **Diagnostics** — `osal_panic`, `osal_log`, `rumpuser_dprintf`, `rumpuser_exit`
+- [x] **PPC atomics** — `atomic_cas_32/uint/ptr`, add/or/and/inc/dec/swap variants, `bswap32/64` via `lwarx`/`stwcx.`
+- [x] **PPC memory barriers** — `membar_acquire/release/consumer/enter/producer/sync` via `lwsync`/`sync`
+- [x] **Kernel globals for rump** — `hz`, `rump_threads`, `rump_lockdebug`, `panic`, `nullop`, `kpreempt*`, `lockdebug_abort`, autogen stand-ins
+- [x] **All 47 `rumpuser_*` hypercalls** — full stubs; memory/lock/thread families call real Phase 1 code
+- [ ] **`osal_timer_new/schedule/cancel`** — still stub; needs a background timer-service task
+- [ ] **TB frequency calibration** — clock reports ~10× real; needs runtime measure or switch to `timer.device` for wall clock
+- [ ] **Real rump syscall generator** — `rump_syscalls.c` / `rumpkern_if_wrappers.c` from `syscalls.master`
+
+### Phase 2 — Engine (`netstack.process`)
+- [x] **Process bring-up** — spawn at pri 5, publish named MsgPort `"netstack.request"`, READY/STOPPED signal handshake
+- [x] **Dispatch loop** — Wait on port + CTRL_C; ReplyMsg per request; graceful `NETSTACK_OP_SHUTDOWN`
+- [x] **RPC round-trip verified** — `NETSTACK_OP_PING` echoes payload+1; 8-ping stress test green
+- [x] **Fd table** — 128 slots, first-fit alloc, states UNBOUND/LISTEN/CONNECTED
+- [x] **Stub socket ops** — bind/listen/connect/accept/send/recv non-blocking; two-opener echo test green
+- [ ] **Real rump-backed dispatch** — replace stub in `src/phase2_engine/fdtable.c` with calls into rump once rump_init works
+- [ ] **`rump_init()` bring-up test** — no attempt yet; blocked on shrinking unresolved-symbol list
+
+### Phase 3 — bsdsocket.library shim
+- [x] **`libnetstack_client.a`** — `netstack_init/socket/close/bind/listen/connect/accept/send/recv/ping` wrappers
+- [x] **Per-task engine port cache + reply port table** — same pattern as `osal_timer` per-task IORequests
+- [x] **`.library` shell — single-interface mode** — resident tag, `MakeLibrary`, `__library` manager works; `OpenLibrary` returns valid base
+- [~] **`.library` shell — two-interface mode (`main`)** — enabling the user-facing interface trips a MakeInterface bug that hangs the guest at boot; deferred, callers link `libnetstack_client.a` directly
+- [ ] **Full BSD socket API surface** — `WaitSelect`, `getsockopt/setsockopt`, `gethostbyname/inet_addr`/etc.
+- [ ] **Per-task errno** — `SocketBaseTags(SBTC_SOCKETSIGNAL)` and `__error()` ptr
+- [ ] **Real socket-signal integration** — `WaitSelect` woken on socket-readable
+
+### Phase 4 — NetDev (SANA-III) driver interface
+- [x] **Interface headers** — `netdev.h` defines `NetDevCapabilities`, `NetDevBuf`, `NetDevRing`, method table
+- [x] **Registry + ring skeleton** — `netdev_registry.c`, `netdev_ring.c` compile
+- [x] **Reference driver stub** — `reference_driver.c` (e1000e-shaped vector table, all methods return -1)
+- [ ] **Real reference driver** — port `virte1000` to NetDev shape
+- [ ] **Zero-copy verification** — mbuf-wrapped NetDevBuf round-trip
+
+### Phase 5 — SANA-II bridge + benchmarks
+- [x] **Bridge stub** — `sana2_bridge.c` skeleton
+- [ ] **Real bridge** — wrap existing `.device` drivers (`virtnet`, `virte1000`, `loopback`) as NetDev instances
+- [ ] **iperf3 client/server on-guest**
+- [ ] **Comparative benchmarks vs Roadshow** — same hardware, same workload
+
+### Rump kernel import + compile
+- [x] **Import script** — `scripts/import-rump.sh` git-sparse-checkout of `netbsd-10` branch
+- [x] **Subtrees imported** — `sys/{rump,net,netinet,netinet6,kern,sys,uvm,dev,secmodel,crypto/*,altq,ufs}`, `sys/arch/powerpc/include`, `sys/lib/libkern`, `common/{include,lib/libc/*}`, `include`; 5990 files, 115 MB
+- [x] **Include-path arch symlinks** — `sys/machine` and `sys/powerpc` → `arch/powerpc/include` (rump build makes both; script does it too)
+- [x] **`RUMP_CFLAGS` recipe** — `-imacros opt_rumpkernel.h` is the key find; the rest is `-I` plumbing
+- [x] **`librump.a` builds** — `scripts/rump-compile-all.sh` compiles 100/109 rump-kern SRCS clean → 983 KB archive
+- [x] **Zero unresolved `atomic_*`, `rumpuser_*`, `rump_*`, `VOP_*` after link** — those categories fully bridged
+- [~] **9 remaining compile failures** — 3× missing `machine/disklabel.h`, 1× `sleepq.c` struct mismatch, 1× `locks_up.c` (MP-vs-UP mutual exclusion), 1× `atomic_op_namespace.h`, 1× `vm.c pmap_kernel`, 1× `compat/sys/timex.h`, 1× `rump_autoconf.c` (autogen `ioconf.c`)
+- [~] **4 SRCS not found in tree** — `kern_select_50`, `kern_time_50`, `param`, `rndpseudo_50` — compat-50 shims that live under different names in `sys/compat/common`
+- [~] **153 remaining unresolved symbols** — down from 188 at start of link work; breakdown in `docs/rump_compile_report.md`
+    - 25 `uvm_*` — rest of `sys/uvm/*.c` not in rumpkern SRCS
+    - 10 `prop_*` — `sys/kern/subr_prop.c` compiles but isn't archived
+    - 10 `radix_*` — `sys/net/radix.c`, pulled in when we compile Phase 2 net files
+    - 7 `sleepq_*` — provided by the sleepq.c that failed to compile
+    - long tail (cpu_*, entpool_*, uvmspace_*, pmap_*, ...)
+- [ ] **Link `librump.a` + `libnetstack_osal.a` into a test executable** — 153 unresolved must reach 0 first
+- [ ] **`rump_init()` at runtime** — must return 0 on the OS4 guest
+- [ ] **Compile `sys/net/*.c` and `sys/netinet/*.c`** — Phase 2 network subsystem
+- [ ] **Wire `NETSTACK_OP_SOCKET` etc. to `rump_pub_sys_*`** — connect Phase 2 engine to rump for real
+
+### On-guest tests
+| Test                            | Status | Verifies                                                   |
+|---------------------------------|--------|------------------------------------------------------------|
+| `tests/phase1/test_threads`     | Green  | 8 workers create/run/join under mutex; counter matches      |
+| `tests/phase1/test_sleep`       | Green  | `osal_sleep_ns` via timer.device; clock proportional        |
+| `tests/phase1/test_cv`          | Green  | 3 producers/2 consumers, cv handoff, sums match             |
+| `tests/phase2/test_engine_ping` | Green  | Engine spawns, named port, 8 pings round-trip, clean stop   |
+| `tests/phase3/test_client_rpc`  | Green  | Client wrappers + per-task reply-port cache; ENOSYS routes  |
+| `tests/phase3/test_echo`        | Green  | Full stub-socket bind/listen/connect/accept/send/recv       |
+| `tests/phase3/test_bsdlib`      | Partial| OpenLibrary works single-interface; two-interface hangs     |
 
 ## Repo layout
 
 ```
 docs/
-  OVERVIEW.md           — architecture diagram, component map
-  roadmap.md            — realistic phase timing + risks
-  phase1_osal.md        — OS Adaptation Layer
-  phase2_engine.md      — netstack.process
-  phase3_bsdsocket.md   — bsdsocket.library shim
-  phase4_netdev.md      — NetDev / SANA-III driver spec
-  phase5_testing.md     — SANA-II bridge, iperf3, tuning
+  OVERVIEW.md              architecture diagram, component map
+  roadmap.md               realistic phase timing + risks
+  phase1..5_*.md           per-phase design
+  rump_build_probe.md      how the rump compile recipe was derived
+  rump_compile_report.md   which imported source files compile today
+
 include/
-  netstack/             — public headers for consumers of this repo
-  rumpuser/             — hypercall API we implement for the rump kernel
+  netstack/                public headers (osal, mbuf, netdev,
+                           netstack, netstack_client, netstack_ipc)
+  rumpuser/                NetBSD rump hypercall API declarations
+
 src/
-  phase1_osal/          — malloc, mutex, thread, timer, mbuf → ExecSG
-  phase2_engine/        — netstack.process main loop
-  phase3_bsdsocket/     — bsdsocket.library Interface vector table
-  phase4_netdev/        — NetDev interface + reference driver
-  phase5_testing/       — SANA-II bridge, benchmarks
-tests/                  — per-phase test harnesses
+  phase1_osal/             OSAL primitives; rump globals; PPC atomics
+  phase2_engine/           netstack.process engine + fd table + IPC dispatch
+  phase3_bsdsocket/        libnetstack_client.a + .library shell
+  phase4_netdev/           NetDev interface, registry, ring, reference driver
+  phase5_testing/          SANA-II bridge stub, bench stub
+
+tests/
+  phase1/{test_threads,test_sleep,test_cv}
+  phase2/{test_engine_ping}
+  phase3/{test_client_rpc,test_echo,test_bsdlib}
+
 scripts/
-  build.sh              — docker cross-compile wrapper
-  import-rump.sh        — placeholder for NetBSD rump source import
+  build.sh                 docker cross-compile wrapper
+  import-rump.sh           fetches NetBSD-10 subtrees under vendor/
+  rump-compile-all.sh      compiles rump-kern SRCS, reports pass/fail
+
 vendor/
-  netbsd-rump/          — NetBSD source subtree (import script writes here)
+  netbsd-rump/             NetBSD source subtree (gitignored;
+                           regenerated by import-rump.sh)
+    IMPORT_MANIFEST.txt    committed — pins commit SHA + counts
 ```
 
 ## Build
 
 ```sh
-docker pull walkero/amigagccondocker:os4-gcc11-arm64   # once
-./scripts/build.sh                                     # builds what compiles today
+docker pull walkero/amigagccondocker:os4-gcc11-arm64      # once
+
+./scripts/import-rump.sh              # once, fetches ~115 MB source
+./scripts/build.sh                    # phases 1-5 objects + libs + tests
+./scripts/rump-compile-all.sh         # rump-kern → librump.a
 ```
 
-Right now `scripts/build.sh` builds Phase 1 stubs and Phase 4
-headers, and reports the rest as `not-yet`. Each phase adds itself
-to the top-level Makefile as it starts producing output.
+Artifacts of interest in `build/`:
+- `libnetstack_osal.a` — Phase 1 primitives + PPC atomics + rump globals
+- `libnetstack_client.a` — Phase 3 client-side RPC wrappers
+- `librump.a` — NetBSD rump kernel subset, 983 KB, 100 objects
+- `netstack.library` — Phase 3 `.library` shell (single-interface config)
+- `tests/test_*` — on-guest test binaries
 
 ## Related projects
 
