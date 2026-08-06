@@ -75,9 +75,20 @@ const char copyright[] = "Copyright (c) netstack-amigaos4 contributors\n";
  * reading it gets zero page counts, which is safe for
  * initialization but WILL crash real VM operations. */
 struct { char _pad[4096]; } uvmexp;
-uint32_t uvmexp_pagesize = 4096;
-uint32_t uvmexp_pageshift = 12;
-uint32_t uvmexp_pagemask  = 4095;
+
+/* NetBSD declares these as `const int *const` in
+ * sys/uvm/uvm_param.h — pointers to fields inside uvmexp. Real
+ * uvm_init.c initializes them via &uvmexp.pagemask etc. When we
+ * define them as plain ints, PAGE_MASK = *uvmexp_pagemask
+ * dereferences the value-as-pointer and faults on 0xFFF. Give
+ * them their real pointer type, backed by static ints we
+ * initialize to sensible 4 KB values. */
+static int _pagemask_backing  = 4095;
+static int _pageshift_backing = 12;
+static int _pagesize_backing  = 4096;
+const int *const uvmexp_pagemask  = &_pagemask_backing;
+const int *const uvmexp_pageshift = &_pageshift_backing;
+const int *const uvmexp_pagesize  = &_pagesize_backing;
 
 /* Sleep syncobj for our synchronization primitives. */
 void *sleep_syncobj;
