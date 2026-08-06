@@ -224,9 +224,12 @@ osal_cv_broadcast(struct osal_cv *cv)
 
 /* -------- rump hypercall shims --------------------------------- */
 
+extern void osal_trace(const char *fmt, ...);
+
 void rumpuser_mutex_init(struct rumpuser_mtx **mtx, int flags) {
     (void)flags;
     *mtx = (struct rumpuser_mtx *)osal_mutex_new();
+    osal_trace("[mtx_init] flags=%d -> %p\n", flags, *mtx);
 }
 void rumpuser_mutex_enter(struct rumpuser_mtx *mtx)  { osal_mutex_lock((struct osal_mutex *)mtx); }
 void rumpuser_mutex_enter_nowrap(struct rumpuser_mtx *mtx) { osal_mutex_lock((struct osal_mutex *)mtx); }
@@ -235,7 +238,7 @@ void rumpuser_mutex_exit(struct rumpuser_mtx *mtx)   { osal_mutex_unlock((struct
 void rumpuser_mutex_destroy(struct rumpuser_mtx *mtx){ osal_mutex_free((struct osal_mutex *)mtx); }
 void rumpuser_mutex_owner(struct rumpuser_mtx *mtx, struct lwp **lp) { (void)mtx; *lp = NULL; }
 
-void rumpuser_rw_init(struct rumpuser_rw **rw)             { *rw = (struct rumpuser_rw *)osal_rwlock_new(); }
+void rumpuser_rw_init(struct rumpuser_rw **rw)             { *rw = (struct rumpuser_rw *)osal_rwlock_new(); osal_trace("[rw_init] -> %p\n", *rw); }
 void rumpuser_rw_enter(int type, struct rumpuser_rw *rw)   { (void)type; osal_rwlock_wlock((struct osal_rwlock *)rw); }
 int  rumpuser_rw_tryenter(int t, struct rumpuser_rw *rw)   { (void)t; (void)rw; return 0; }
 int  rumpuser_rw_tryupgrade(struct rumpuser_rw *rw)        { (void)rw; return 0; }
@@ -244,7 +247,7 @@ void rumpuser_rw_exit(struct rumpuser_rw *rw)              { osal_rwlock_unlock(
 void rumpuser_rw_destroy(struct rumpuser_rw *rw)           { osal_rwlock_free((struct osal_rwlock *)rw); }
 void rumpuser_rw_held(int t, struct rumpuser_rw *rw, int *heldp) { (void)t; (void)rw; *heldp = 0; }
 
-void rumpuser_cv_init(struct rumpuser_cv **cv)             { *cv = (struct rumpuser_cv *)osal_cv_new(); }
+void rumpuser_cv_init(struct rumpuser_cv **cv)             { *cv = (struct rumpuser_cv *)osal_cv_new(); osal_trace("[cv_init] -> %p\n", *cv); }
 void rumpuser_cv_destroy(struct rumpuser_cv *cv)           { osal_cv_free((struct osal_cv *)cv); }
 void rumpuser_cv_wait(struct rumpuser_cv *cv, struct rumpuser_mtx *mtx) {
     osal_cv_wait((struct osal_cv *)cv, (struct osal_mutex *)mtx);
