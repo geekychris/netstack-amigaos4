@@ -16,6 +16,7 @@
 #include "rumpuser/rumpuser.h"
 
 #include <proto/exec.h>
+#include <proto/dos.h>
 #include <exec/exectags.h>
 #include <exec/tasks.h>
 #include <string.h>
@@ -69,13 +70,20 @@ osal_thread_create(osal_thread_fn fn, void *arg,
     if (t->join_sigbit < 0) { osal_free(t); return -1; }
     t->join_sigmask = 1UL << t->join_sigbit;
 
+    /* 16 KB was way too small — BSD kernel threads (schedhog,
+     * workqueue, callout) blow it during rump_init and trap with
+     * "stackpointer beyond bounds". 512 KB matches the ballpark
+     * NetBSD uses for kthread_create's default. */
     IExec->Forbid();
     t->task = (struct Task *)IExec->CreateTaskTags(
         name ? name : "osal-thread", priority,
-        osal_thread_trampoline, 16384,
+        osal_thread_trampoline, 512 * 1024,
         TAG_END);
     if (t->task) t->task->tc_UserData = t;
     IExec->Permit();
+    extern void osal_trace(const char *fmt, ...);
+    osal_trace("[thread] '%s' prio=%d stack=%dKB task=%p\n",
+               name ? name : "osal-thread", priority, 512, t->task);
 
     if (!t->task) {
         IExec->FreeSignal(t->join_sigbit);

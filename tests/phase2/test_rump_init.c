@@ -1,60 +1,43 @@
 /*
  * tests/phase2/test_rump_init.c — try to bring up the rump kernel.
  *
- * Rump kernel init uses way more stack than the OS4 shell's
- * default 64 KB. Allocate a big private stack + StackSwap into
- * it before calling rump_init(). Swap back before returning.
+ * We DON'T use StackSwap here. Post-StackSwap Printf never fired,
+ * suggesting newlib's per-task state is keyed on the stack range
+ * and gets confused after a swap. Instead we set __stack so this
+ * binary's initial stack is 2 MB — enough for kernel init.
+ *
+ * Child threads spawned by rump go through osal_thread_create,
+ * which now allocates 512 KB per task (was 16 KB — nowhere near
+ * enough for a BSD kernel thread).
  */
 
-#include <exec/tasks.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <stddef.h>
 
-#define BIG_STACK  (1024 * 1024)     /* 1 MB */
+/* Amiga executable stack cookie — the shell reads this and sizes
+ * the process's stack accordingly. 2 MB. */
+unsigned long __stack = 2 * 1024 * 1024;
 
 extern int rump_init(void);
-
-/* Called under our big stack. */
-static int g_rump_result;
-static void
-rump_bootstrap(void)
-{
-    g_rump_result = rump_init();
-}
+extern int rumpuser_init(int, const void *);
+extern int rumpuser_getparam(const char *, void *, size_t);
 
 int
 main(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    IDOS->Printf("test_rump_init: allocating %ld KB stack\n",
-                 (long)(BIG_STACK / 1024));
+    IDOS->Printf("test_rump_init: __stack=%lu KB\n", __stack / 1024UL);
+    IDOS->Printf("  &main         = %p\n", (void *)main);
+    IDOS->Printf("  &rump_init    = %p\n", (void *)rump_init);
+    IDOS->Printf("  &rumpuser_init= %p\n", (void *)rumpuser_init);
+    IDOS->Printf("  &getparam     = %p\n", (void *)rumpuser_getparam);
+    IDOS->Printf("test_rump_init: calling rump_init()...\n");
     IDOS->FFlush(IDOS->Output());
 
-    void *stack_lower = IExec->AllocVecTags(BIG_STACK,
-        AVT_Type,           MEMF_PRIVATE,
-        AVT_ClearWithValue, 0,
-        TAG_END);
-    if (!stack_lower) {
-        IDOS->Printf("stack alloc FAILED\n");
-        return 20;
-    }
+    int rv = rump_init();
 
-    struct StackSwapStruct sss;
-    sss.stk_Lower   = stack_lower;
-    sss.stk_Upper   = (unsigned long)stack_lower + BIG_STACK;
-    sss.stk_Pointer = (APTR)sss.stk_Upper;
-
-    IDOS->Printf("test_rump_init: StackSwap → calling rump_init()...\n");
+    IDOS->Printf("test_rump_init: rump_init returned %d\n", rv);
     IDOS->FFlush(IDOS->Output());
-
-    /* OS4 StackSwap: swap in, run, swap back. */
-    IExec->StackSwap(&sss);
-    rump_bootstrap();
-    IExec->StackSwap(&sss);
-
-    IExec->FreeVec(stack_lower);
-
-    IDOS->Printf("test_rump_init: rump_init returned %ld\n", (long)g_rump_result);
-    IDOS->FFlush(IDOS->Output());
-    return g_rump_result ? 20 : 0;
+    return rv ? 20 : 0;
 }

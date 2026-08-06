@@ -10,8 +10,30 @@
 #include "rumpuser/rumpuser.h"
 
 #include <proto/exec.h>
+#include <proto/dos.h>
 #include <stdarg.h>
 #include <stdio.h>
+
+/* Very small append-only trace to T:trumpinit.log — visible to
+ * the host via /api/file. Cheap enough to sprinkle liberally in
+ * hot boot paths while we're bisecting rump_init crashes. */
+void
+osal_trace(const char *fmt, ...)
+{
+    char buf[256];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n <= 0) return;
+    if (n > (int)sizeof(buf)) n = sizeof(buf);
+    BPTR f = IDOS->Open("T:trumpinit.log", MODE_READWRITE);
+    if (f) {
+        IDOS->ChangeFilePosition(f, 0, OFFSET_END);
+        IDOS->Write(f, buf, n);
+        IDOS->Close(f);
+    }
+}
 
 void
 osal_panic(const char *msg, ...)
@@ -73,29 +95,12 @@ rumpuser_getparam(const char *name, void *buf, size_t buflen)
     /* Compare inline (no libc str fns available in this context
      * at link time — some builds work, others don't). */
     #define STR_EQ(s) __builtin_strcmp(name, s) == 0
-    if (STR_EQ("_RUMPUSER_NCPU")) {
-        /* Single-CPU rump kernel. NCPU=1 is the safe default. */
-        buf_write(buf, buflen, "1");
-        return 0;
-    }
-    if (STR_EQ("_RUMPUSER_HOSTNAME")) {
-        buf_write(buf, buflen, "netstack-os4");
-        return 0;
-    }
-    if (STR_EQ("RUMP_VERBOSE")) {
-        buf_write(buf, buflen, "0");
-        return 0;
-    }
-    if (STR_EQ("RUMP_THREADS")) {
-        buf_write(buf, buflen, "1");
-        return 0;
-    }
-    if (STR_EQ("RUMP_MEMLIMIT")) {
-        /* Bytes of memory rump is allowed to consume. 32 MB
-         * is generous for a network-only stack. */
-        buf_write(buf, buflen, "33554432");
-        return 0;
-    }
+    osal_trace("[getparam] %s\n", name);
+    if (STR_EQ("_RUMPUSER_NCPU"))     { buf_write(buf, buflen, "1"); return 0; }
+    if (STR_EQ("_RUMPUSER_HOSTNAME")) { buf_write(buf, buflen, "netstack-os4"); return 0; }
+    if (STR_EQ("RUMP_VERBOSE"))       { buf_write(buf, buflen, "0"); return 0; }
+    if (STR_EQ("RUMP_THREADS"))       { buf_write(buf, buflen, "1"); return 0; }
+    if (STR_EQ("RUMP_MEMLIMIT"))      { buf_write(buf, buflen, "33554432"); return 0; }
     return 2 /* ENOENT */;
     #undef STR_EQ
 }
@@ -116,6 +121,7 @@ int
 rumpuser_init(int version, const struct rumpuser_hyperup *hyp)
 {
     (void)version; (void)hyp;
+    osal_trace("[rumpuser_init] version=%d hyp=%p\n", version, hyp);
     /* Real: version-check + store hyp for later callbacks. */
     return 0;
 }
@@ -145,6 +151,7 @@ rumpuser_dl_bootstrap(void *symcall, void *symload, void *symfini,
                       void *modinfo)
 {
     (void)symcall; (void)symload; (void)symfini; (void)modinfo;
+    osal_trace("[rumpuser_dl_bootstrap]\n");
     return 0;
 }
 
