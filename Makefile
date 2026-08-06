@@ -204,6 +204,12 @@ $(BUILD)/tests/test_bsdlib: tests/phase3/test_bsdlib.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $< -o $@ $(TESTLDFLAGS)
 
+# Standalone trap-emulator verifier — no librump, ~50 KB, so
+# usable when the bridge is too flaky for the 823 KB rump build.
+$(BUILD)/tests/test_trap_emul: tests/phase2/test_trap_emul.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< -o $@ $(TESTLDFLAGS)
+
 # Static libs — the useful shape for the eventual link steps.
 $(BUILD)/libnetstack_osal.a: $(PHASE1_OBJ)
 	$(AR) rcs $@ $^
