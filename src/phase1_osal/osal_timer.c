@@ -158,6 +158,8 @@ void osal_timer_cancel(struct osal_timer *t)                   { (void)t; }
 
 /* -------- rump hypercall shims --------------------------------- */
 
+extern void osal_trace(const char *fmt, ...);
+
 int
 rumpuser_clock_gettime(int enum_rumpclock, int64_t *sec, long *nsec)
 {
@@ -165,6 +167,7 @@ rumpuser_clock_gettime(int enum_rumpclock, int64_t *sec, long *nsec)
     uint64_t ns = osal_clock_monotonic_ns();
     if (sec)  *sec  = (int64_t)(ns / 1000000000ULL);
     if (nsec) *nsec = (long)(ns % 1000000000ULL);
+    osal_trace("[clock_gettime] -> %ld.%ld\n", sec ? (long)*sec : -1, nsec ? *nsec : -1);
     return 0;
 }
 

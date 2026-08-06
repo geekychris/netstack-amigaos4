@@ -233,6 +233,25 @@ main(int argc, char **argv)
                  (void *)(g_recovery_stack + RECOVERY_STACK_SIZE));
     IDOS->Printf("Installing trap handlers...\n");
     install_all_traps();
+
+    /* Dump loaded libraries so we can decode the crash PC's
+     * library later. IExec->LibList (via ExecBase or similar)
+     * enumerates linked libs. */
+    {
+        struct ExecBase *sb = (struct ExecBase *)IExec->Data.LibBase;
+        IExec->Forbid();
+        struct Node *n;
+        IDOS->Printf("-- Library list --\n");
+        for (n = ((struct List *)&sb->LibList)->lh_Head; n->ln_Succ; n = n->ln_Succ) {
+            struct Library *lib = (struct Library *)n;
+            IDOS->Printf("  base=0x%08lx neg=%u pos=%u name=%s\n",
+                         (unsigned long)lib, (unsigned)lib->lib_NegSize,
+                         (unsigned)lib->lib_PosSize,
+                         n->ln_Name ? n->ln_Name : "?");
+        }
+        IExec->Permit();
+        IDOS->FFlush(IDOS->Output());
+    }
     IDOS->Printf("test_rump_init: calling rump_init()...\n");
     IDOS->FFlush(IDOS->Output());
 

@@ -188,12 +188,15 @@ rumpuser_thread_join(void *cookie)
 struct lwp;
 static struct lwp *g_stub_curlwp;   /* single global for the initial thread */
 
+extern void osal_trace(const char *fmt, ...);
+
 void
 rumpuser_curlwpop(int op, struct lwp *l)
 {
-    /* Ops: 0=set, 1=get. Simplified: single-thread only. */
-    (void)op;
-    if (l) g_stub_curlwp = l;
+    /* Ops (per NetBSD): 0=CREATE, 1=DESTROY, 2=SET, 3=CLEAR. */
+    osal_trace("[curlwpop] op=%d l=%p\n", op, l);
+    if (op == 2) g_stub_curlwp = l;
+    else if (op == 3) g_stub_curlwp = NULL;
 }
 
 struct lwp *
