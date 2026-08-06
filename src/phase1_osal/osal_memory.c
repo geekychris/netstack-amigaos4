@@ -17,13 +17,15 @@ void *
 osal_malloc(size_t size, size_t align)
 {
     if (align == 0) align = 16;
-    /* AllocVecTags with AVT_Alignment. MEMF_SHARED so buffers can
-     * cross task boundaries (needed for driver hand-off later). */
-    return IExec->AllocVecTags(size,
+    extern void osal_trace(const char *fmt, ...);
+    void *p = IExec->AllocVecTags(size,
         AVT_Type,           MEMF_SHARED,
         AVT_Alignment,      align,
         AVT_ClearWithValue, 0,
         TAG_END);
+    osal_trace("[malloc] sz=%lu align=%lu -> %p\n",
+               (unsigned long)size, (unsigned long)align, p);
+    return p;
 }
 
 void
