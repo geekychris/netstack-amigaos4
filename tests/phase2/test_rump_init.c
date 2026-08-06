@@ -38,12 +38,68 @@ extern int rumpuser_getparam(const char *, void *, size_t);
  * corrupt SP at fault time. */
 static struct ExceptionContext g_crash_ctx;
 static volatile ULONG g_trap_num_hit;
+static volatile uint32 g_last_bad_insn;
 #define RECOVERY_STACK_SIZE (64 * 1024)
 static unsigned char g_recovery_stack[RECOVERY_STACK_SIZE]
     __attribute__((aligned(16)));
 
+/* Fake supervisor-only PowerPC state that the emulator returns
+ * on behalf of privileged reads. */
+static uint32 g_sprg[8];
+static struct {
+    unsigned char bytes[4096];
+} g_fake_cpu __attribute__((aligned(16)));
+
+/* Emulated priv-insn hit counters, dumped by crash_dump so we
+ * know how much of rump_init got past on emulation alone. */
+static volatile uint32 g_priv_emulated_count;
+static volatile uint32 g_priv_last_spr;
+static volatile uint32 g_priv_last_kind;   /* 1=mfsprg, 2=mtsprg */
+
 /* Forward decl — the resume target we redirect ip to. */
 static void crash_dump(void);
+
+/* Try to emulate the privileged instruction at ctx->ip. If we
+ * can, patch ctx (registers + advance ip past the insn) and
+ * return 1. If not, return 0 — caller routes to crash_dump. */
+static int
+emulate_priv_insn(struct ExceptionContext *ctx)
+{
+    uint32 insn = *(volatile uint32 *)(uintptr_t)ctx->ip;
+    uint32 opcode = (insn >> 26) & 0x3F;
+    if (opcode != 31) return 0;   /* only X-form insns here */
+
+    uint32 xo     = (insn >> 1)  & 0x3FF;
+    uint32 rt     = (insn >> 21) & 0x1F;
+    uint32 spr_lo = (insn >> 16) & 0x1F;
+    uint32 spr_hi = (insn >> 11) & 0x1F;
+    uint32 spr    = (spr_hi << 5) | spr_lo;
+
+    /* mfspr (XO 339) — treat SPR 272..279 as SPRG0..SPRG7.
+     * First read of SPRG0 lazily returns &g_fake_cpu so that
+     * BSD's curcpu() gets a plausible writable per-CPU area. */
+    if (xo == 339 && spr >= 272 && spr <= 279) {
+        int idx = spr - 272;
+        if (idx == 0 && g_sprg[0] == 0)
+            g_sprg[0] = (uint32)(uintptr_t)&g_fake_cpu;
+        ctx->gpr[rt] = g_sprg[idx];
+        ctx->ip += 4;
+        g_priv_emulated_count++;
+        g_priv_last_spr = spr;
+        g_priv_last_kind = 1;
+        return 1;
+    }
+    /* mtspr (XO 467) — writes to SPRG stored in our shadow. */
+    if (xo == 467 && spr >= 272 && spr <= 279) {
+        g_sprg[spr - 272] = ctx->gpr[rt];   /* rt is really RS here */
+        ctx->ip += 4;
+        g_priv_emulated_count++;
+        g_priv_last_spr = spr;
+        g_priv_last_kind = 2;
+        return 1;
+    }
+    return 0;
+}
 
 /* One trap handler per class — records which class, then routes
  * to the shared post-processing. Called in interrupt-like
@@ -53,9 +109,16 @@ trap_handler(struct ExceptionContext *ctx, struct ExecBase *sb,
              APTR trapData)
 {
     (void)sb;
-    g_trap_num_hit = (ULONG)(uintptr_t)trapData;
-    /* Copy fixed-size prefix — the FP/vector suffix is huge and
-     * we don't need it for a crash report. */
+    ULONG num = (ULONG)(uintptr_t)trapData;
+
+    /* Fast path: emulate the ubiquitous mfsprg 0 / mtsprg N
+     * that BSD kernel code uses for curcpu(). No dump, just
+     * resume at ip+4. */
+    if (num == TRAPNUM_PRIVILEGE_VIOLATION && emulate_priv_insn(ctx))
+        return 1;
+
+    g_trap_num_hit = num;
+    g_last_bad_insn = *(volatile uint32 *)(uintptr_t)ctx->ip;
     memcpy(&g_crash_ctx, ctx,
            offsetof(struct ExceptionContext, fpr));
 
@@ -100,6 +163,9 @@ crash_dump(void)
     IDOS->FPrintf(f, "=== TRAP CAUGHT ===\n");
     IDOS->FPrintf(f, "trap num  = 0x%08lx (%s)\n",
                   g_trap_num_hit, trap_name(g_trap_num_hit));
+    IDOS->FPrintf(f, "bad insn  = 0x%08lx\n", g_last_bad_insn);
+    IDOS->FPrintf(f, "priv-emulated so far: count=%lu last_spr=%lu last_kind=%lu\n",
+                  g_priv_emulated_count, g_priv_last_spr, g_priv_last_kind);
     IDOS->FPrintf(f, "Flags     = 0x%08lx\n",  g_crash_ctx.Flags);
     IDOS->FPrintf(f, "Traptype  = 0x%08lx\n",  g_crash_ctx.Traptype);
     IDOS->FPrintf(f, "msr       = 0x%08lx\n",  g_crash_ctx.msr);
@@ -173,6 +239,7 @@ main(int argc, char **argv)
     int rv = rump_init();
 
     IDOS->Printf("test_rump_init: rump_init returned %d\n", rv);
+    IDOS->Printf("  priv-insns emulated: %lu\n", g_priv_emulated_count);
     IDOS->FFlush(IDOS->Output());
     return rv ? 20 : 0;
 }
