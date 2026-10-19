@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Netstack Amigaos4 logo" width="180">
+</p>
+
 # netstack-amigaos4 — modern BSD network stack for AmigaOS 4
 
 **Status: WORK-IN-PROGRESS.** OSAL primitives verified on the OS4
